@@ -1,6 +1,9 @@
 --[[
-   XENO ULTIMATE CHEAT - GUI MENU
-   Aimbot + ESP + Hitbox + Menu
+   XENO ULTIMATE CHEAT v5.0 - MODERN UI
+   - Płynne animacje
+   - Nowoczesny design
+   - Gradienty i efekty
+   - Działa w pełnym ekranie
 ]]
 
 -- ===== SERWISY =====
@@ -8,12 +11,11 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
-local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 -- ===== USTAWIENIA =====
 local Settings = {
-    -- Aimbot
     Aimbot = true,
     AimbotFOV = 180,
     AimbotSmoothness = 0.25,
@@ -21,7 +23,6 @@ local Settings = {
     TeamCheck = true,
     VisibleCheck = true,
     
-    -- ESP
     ESP = true,
     ESPBox = true,
     ESPLines = true,
@@ -30,135 +31,224 @@ local Settings = {
     ESPColor = Color3.fromRGB(255, 0, 0),
     ESPTeamColor = Color3.fromRGB(0, 255, 0),
     
-    -- Hitbox
     Hitbox = true,
     HitboxSize = 3,
     
-    -- Menu
     MenuKey = Enum.KeyCode.RightShift
 }
 
--- ===== TWORZENIE MENU =====
+-- ===== STYL MENU (MODERN) =====
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "XenoCheatMenu"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder = 999
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
--- Główne okno
+-- Kolory i style
+local Colors = {
+    Background = Color3.fromRGB(20, 20, 30),
+    Secondary = Color3.fromRGB(30, 30, 45),
+    Accent = Color3.fromRGB(0, 200, 255),
+    AccentDark = Color3.fromRGB(0, 150, 200),
+    Text = Color3.fromRGB(255, 255, 255),
+    TextDark = Color3.fromRGB(150, 150, 170),
+    ToggleOn = Color3.fromRGB(0, 255, 150),
+    ToggleOff = Color3.fromRGB(255, 80, 80),
+    Border = Color3.fromRGB(0, 200, 255)
+}
+
+-- ===== GŁÓWNE OKNO =====
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 600, 0, 400)
 MainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-MainFrame.BackgroundTransparency = 0.1
+MainFrame.BackgroundColor3 = Colors.Background
 MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = true
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
--- Tytuł
-local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 40)
-TitleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-TitleBar.BorderSizePixel = 0
-TitleBar.Parent = MainFrame
+-- Animacja wejścia
+MainFrame.BackgroundTransparency = 1
+MainFrame.Size = UDim2.new(0, 0, 0, 0)
+TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 600, 0, 400),
+    BackgroundTransparency = 0
+}):Play()
 
+-- Gradient tła
+local Gradient = Instance.new("UIGradient")
+Gradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(25, 25, 40)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 15, 25))
+})
+Gradient.Rotation = 90
+Gradient.Parent = MainFrame
+
+-- ===== NAGŁÓWEK =====
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 50)
+Header.BackgroundColor3 = Colors.Secondary
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+
+-- Pasek akcentu
+local AccentBar = Instance.new("Frame")
+AccentBar.Size = UDim2.new(1, 0, 0, 3)
+AccentBar.BackgroundColor3 = Colors.Accent
+AccentBar.BorderSizePixel = 0
+AccentBar.Parent = Header
+
+-- Tytuł
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 1, 0)
+Title.Size = UDim2.new(0.8, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "XENO ULTIMATE CHEAT"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 20
+Title.Text = "XENO ULTIMATE"
+Title.TextColor3 = Colors.Text
+Title.TextSize = 22
 Title.Font = Enum.Font.GothamBold
-Title.Parent = TitleBar
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.Parent = Header
+
+-- Podtytuł
+local SubTitle = Instance.new("TextLabel")
+SubTitle.Size = UDim2.new(0.8, 0, 0.5, 0)
+SubTitle.Position = UDim2.new(0, 15, 0.5, 0)
+SubTitle.BackgroundTransparency = 1
+SubTitle.Text = "ULTIMATE CHEAT v5.0"
+SubTitle.TextColor3 = Colors.Accent
+SubTitle.TextSize = 12
+SubTitle.Font = Enum.Font.Gotham
+SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+SubTitle.Parent = Header
 
 -- Przycisk zamknięcia
 local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.new(0, 30, 0, 30)
-CloseButton.Position = UDim2.new(1, -35, 0, 5)
+CloseButton.Size = UDim2.new(0, 35, 0, 35)
+CloseButton.Position = UDim2.new(1, -45, 0, 7.5)
 CloseButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-CloseButton.Text = "X"
-CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.Text = "✕"
+CloseButton.TextColor3 = Colors.Text
 CloseButton.TextSize = 16
 CloseButton.Font = Enum.Font.GothamBold
-CloseButton.Parent = TitleBar
+CloseButton.BorderSizePixel = 0
+CloseButton.Parent = Header
 
--- Zakładki
+-- Animacja hover na przycisku zamknięcia
+CloseButton.MouseEnter:Connect(function()
+    TweenService:Create(CloseButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 80, 80)}):Play()
+end)
+CloseButton.MouseLeave:Connect(function()
+    TweenService:Create(CloseButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 50, 50)}):Play()
+end)
+
+-- ===== ZAKŁADKI =====
 local TabBar = Instance.new("Frame")
-TabBar.Size = UDim2.new(1, 0, 0, 40)
-TabBar.Position = UDim2.new(0, 0, 0, 40)
-TabBar.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+TabBar.Size = UDim2.new(1, 0, 0, 45)
+TabBar.Position = UDim2.new(0, 0, 0, 50)
+TabBar.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
 TabBar.BorderSizePixel = 0
 TabBar.Parent = MainFrame
 
-local Tabs = {"Aimbot", "ESP", "Hitbox", "Info"}
+-- Pasek pod zakładkami
+local TabIndicator = Instance.new("Frame")
+TabIndicator.Size = UDim2.new(0, 100, 0, 3)
+TabIndicator.Position = UDim2.new(0, 10, 1, -3)
+TabIndicator.BackgroundColor3 = Colors.Accent
+TabIndicator.BorderSizePixel = 0
+TabIndicator.Parent = TabBar
+
+local Tabs = {"AIMBOT", "ESP", "HITBOX", "INFO"}
 local TabButtons = {}
 local ContentFrame = Instance.new("Frame")
-ContentFrame.Size = UDim2.new(1, -20, 1, -100)
-ContentFrame.Position = UDim2.new(0, 10, 0, 90)
-ContentFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+ContentFrame.Size = UDim2.new(1, -20, 1, -115)
+ContentFrame.Position = UDim2.new(0, 10, 0, 105)
+ContentFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 ContentFrame.BorderSizePixel = 0
 ContentFrame.Parent = MainFrame
 
--- Funkcja do tworzenia zakładek
 local function createTab(name, index)
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0, 120, 0, 30)
-    button.Position = UDim2.new(0, (index - 1) * 125 + 10, 0, 5)
-    button.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    button.Size = UDim2.new(0, 100, 0, 35)
+    button.Position = UDim2.new(0, (index - 1) * 110 + 10, 0, 5)
+    button.BackgroundTransparency = 1
     button.Text = name
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.TextSize = 14
-    button.Font = Enum.Font.Gotham
+    button.TextColor3 = index == 1 and Colors.Accent or Colors.TextDark
+    button.TextSize = 13
+    button.Font = Enum.Font.GothamBold
     button.Parent = TabBar
     table.insert(TabButtons, button)
     return button
 end
 
--- Funkcja do tworzenia przełącznika
+-- ===== POMOCNICZE ELEMENTY UI =====
 local function createToggle(parent, name, setting, yPos)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 40)
     frame.Position = UDim2.new(0, 0, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BackgroundColor3 = Colors.Secondary
     frame.BorderSizePixel = 0
     frame.Parent = parent
+    
+    -- Gradient tła
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 35, 50)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 30, 45))
+    })
+    grad.Rotation = 90
+    grad.Parent = frame
     
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.7, 0, 1, 0)
     label.BackgroundTransparency = 1
     label.Text = name
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextColor3 = Colors.Text
     label.TextSize = 14
     label.Font = Enum.Font.Gotham
     label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Position = UDim2.new(0, 15, 0, 0)
     label.Parent = frame
     
-    local toggle = Instance.new("TextButton")
-    toggle.Size = UDim2.new(0, 50, 0, 25)
-    toggle.Position = UDim2.new(1, -60, 0, 7.5)
-    toggle.BackgroundColor3 = Settings[setting] and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-    toggle.Text = Settings[setting] and "ON" or "OFF"
-    toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggle.TextSize = 12
-    toggle.Font = Enum.Font.GothamBold
-    toggle.Parent = frame
+    -- Nowoczesny toggle
+    local toggleFrame = Instance.new("Frame")
+    toggleFrame.Size = UDim2.new(0, 50, 0, 25)
+    toggleFrame.Position = UDim2.new(1, -65, 0, 7.5)
+    toggleFrame.BackgroundColor3 = Settings[setting] and Colors.ToggleOn or Colors.ToggleOff
+    toggleFrame.BorderSizePixel = 0
+    toggleFrame.Parent = frame
     
-    toggle.MouseButton1Click:Connect(function()
+    local toggleCircle = Instance.new("Frame")
+    toggleCircle.Size = UDim2.new(0, 19, 0, 19)
+    toggleCircle.Position = Settings[setting] and UDim2.new(1, -24, 0, 3) or UDim2.new(0, 3, 0, 3)
+    toggleCircle.BackgroundColor3 = Colors.Text
+    toggleCircle.BorderSizePixel = 0
+    toggleCircle.Parent = toggleFrame
+    
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(1, 0, 1, 0)
+    toggleButton.BackgroundTransparency = 1
+    toggleButton.Text = ""
+    toggleButton.Parent = toggleFrame
+    
+    toggleButton.MouseButton1Click:Connect(function()
         Settings[setting] = not Settings[setting]
-        toggle.BackgroundColor3 = Settings[setting] and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-        toggle.Text = Settings[setting] and "ON" or "OFF"
+        TweenService:Create(toggleFrame, TweenInfo.new(0.3), {
+            BackgroundColor3 = Settings[setting] and Colors.ToggleOn or Colors.ToggleOff
+        }):Play()
+        TweenService:Create(toggleCircle, TweenInfo.new(0.3), {
+            Position = Settings[setting] and UDim2.new(1, -24, 0, 3) or UDim2.new(0, 3, 0, 3)
+        }):Play()
     end)
-    
-    return toggle
 end
 
--- Funkcja do tworzenia suwaka
 local function createSlider(parent, name, setting, min, max, yPos)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 50)
     frame.Position = UDim2.new(0, 0, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BackgroundColor3 = Colors.Secondary
     frame.BorderSizePixel = 0
     frame.Parent = parent
     
@@ -166,10 +256,11 @@ local function createSlider(parent, name, setting, min, max, yPos)
     label.Size = UDim2.new(0.7, 0, 0.5, 0)
     label.BackgroundTransparency = 1
     label.Text = name
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextColor3 = Colors.Text
     label.TextSize = 14
     label.Font = Enum.Font.Gotham
     label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Position = UDim2.new(0, 15, 0, 0)
     label.Parent = frame
     
     local valueLabel = Instance.new("TextLabel")
@@ -177,35 +268,49 @@ local function createSlider(parent, name, setting, min, max, yPos)
     valueLabel.Position = UDim2.new(0.7, 0, 0, 0)
     valueLabel.BackgroundTransparency = 1
     valueLabel.Text = tostring(Settings[setting])
-    valueLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+    valueLabel.TextColor3 = Colors.Accent
     valueLabel.TextSize = 14
     valueLabel.Font = Enum.Font.GothamBold
     valueLabel.TextXAlignment = Enum.TextXAlignment.Right
     valueLabel.Parent = frame
     
-    local slider = Instance.new("Frame")
-    slider.Size = UDim2.new(0.9, 0, 0, 5)
-    slider.Position = UDim2.new(0.05, 0, 0.7, 0)
-    slider.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-    slider.BorderSizePixel = 0
-    slider.Parent = frame
+    -- Nowoczesny slider
+    local sliderBg = Instance.new("Frame")
+    sliderBg.Size = UDim2.new(0.9, 0, 0, 4)
+    sliderBg.Position = UDim2.new(0.05, 0, 0.7, 0)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    sliderBg.BorderSizePixel = 0
+    sliderBg.Parent = frame
     
     local fill = Instance.new("Frame")
     fill.Size = UDim2.new((Settings[setting] - min) / (max - min), 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    fill.BackgroundColor3 = Colors.Accent
     fill.BorderSizePixel = 0
-    fill.Parent = slider
+    fill.Parent = sliderBg
     
-    local knob = Instance.new("TextButton")
+    local knob = Instance.new("Frame")
     knob.Size = UDim2.new(0, 20, 0, 20)
-    knob.Position = UDim2.new((Settings[setting] - min) / (max - min), -10, 0, -7.5)
-    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    knob.Text = ""
+    knob.Position = UDim2.new((Settings[setting] - min) / (max - min), -10, 0, -8)
+    knob.BackgroundColor3 = Colors.Text
     knob.BorderSizePixel = 0
-    knob.Parent = slider
+    knob.Parent = sliderBg
+    
+    local knobInner = Instance.new("Frame")
+    knobInner.Size = UDim2.new(0, 10, 0, 10)
+    knobInner.Position = UDim2.new(0.25, 0, 0.25, 0)
+    knobInner.BackgroundColor3 = Colors.Accent
+    knobInner.BorderSizePixel = 0
+    knobInner.Parent = knob
     
     local dragging = false
-    knob.MouseButton1Down:Connect(function()
+    local knobButton = Instance.new("TextButton")
+    knobButton.Size = UDim2.new(2, 0, 2, 0)
+    knobButton.Position = UDim2.new(-0.5, 0, -0.5, 0)
+    knobButton.BackgroundTransparency = 1
+    knobButton.Text = ""
+    knobButton.Parent = knob
+    
+    knobButton.MouseButton1Down:Connect(function()
         dragging = true
     end)
     
@@ -217,24 +322,21 @@ local function createSlider(parent, name, setting, min, max, yPos)
     
     UserInputService.InputChanged:Connect(function(input)
         if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local relativeX = math.clamp((input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
+            local relativeX = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
             local value = math.floor(min + (max - min) * relativeX)
             Settings[setting] = value
             valueLabel.Text = tostring(value)
             fill.Size = UDim2.new(relativeX, 0, 1, 0)
-            knob.Position = UDim2.new(relativeX, -10, 0, -7.5)
+            knob.Position = UDim2.new(relativeX, -10, 0, -8)
         end
     end)
-    
-    return slider
 end
 
--- Funkcja do tworzenia dropdown
 local function createDropdown(parent, name, setting, options, yPos)
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 50)
+    frame.Size = UDim2.new(1, 0, 0, 45)
     frame.Position = UDim2.new(0, 0, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BackgroundColor3 = Colors.Secondary
     frame.BorderSizePixel = 0
     frame.Parent = parent
     
@@ -242,20 +344,22 @@ local function createDropdown(parent, name, setting, options, yPos)
     label.Size = UDim2.new(0.5, 0, 1, 0)
     label.BackgroundTransparency = 1
     label.Text = name
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextColor3 = Colors.Text
     label.TextSize = 14
     label.Font = Enum.Font.Gotham
     label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Position = UDim2.new(0, 15, 0, 0)
     label.Parent = frame
     
     local dropdown = Instance.new("TextButton")
-    dropdown.Size = UDim2.new(0.4, 0, 0, 30)
-    dropdown.Position = UDim2.new(0.55, 0, 0, 10)
-    dropdown.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    dropdown.Size = UDim2.new(0.4, 0, 0, 28)
+    dropdown.Position = UDim2.new(0.55, 0, 0, 8.5)
+    dropdown.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
     dropdown.Text = tostring(Settings[setting])
-    dropdown.TextColor3 = Color3.fromRGB(255, 255, 255)
+    dropdown.TextColor3 = Colors.Text
     dropdown.TextSize = 12
     dropdown.Font = Enum.Font.Gotham
+    dropdown.BorderSizePixel = 0
     dropdown.Parent = frame
     
     dropdown.MouseButton1Click:Connect(function()
@@ -263,15 +367,17 @@ local function createDropdown(parent, name, setting, options, yPos)
         local nextIndex = (currentIndex % #options) + 1
         Settings[setting] = options[nextIndex]
         dropdown.Text = tostring(Settings[setting])
+        TweenService:Create(dropdown, TweenInfo.new(0.2), {BackgroundColor3 = Colors.Accent}):Play()
+        task.wait(0.2)
+        TweenService:Create(dropdown, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(50, 50, 70)}):Play()
     end)
 end
 
--- Funkcja do tworzenia przycisku koloru
 local function createColorButton(parent, name, setting, yPos)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 40)
     frame.Position = UDim2.new(0, 0, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BackgroundColor3 = Colors.Secondary
     frame.BorderSizePixel = 0
     frame.Parent = parent
     
@@ -279,41 +385,48 @@ local function createColorButton(parent, name, setting, yPos)
     label.Size = UDim2.new(0.7, 0, 1, 0)
     label.BackgroundTransparency = 1
     label.Text = name
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextColor3 = Colors.Text
     label.TextSize = 14
     label.Font = Enum.Font.Gotham
     label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Position = UDim2.new(0, 15, 0, 0)
     label.Parent = frame
     
     local colorButton = Instance.new("TextButton")
     colorButton.Size = UDim2.new(0, 50, 0, 25)
-    colorButton.Position = UDim2.new(1, -60, 0, 7.5)
+    colorButton.Position = UDim2.new(1, -65, 0, 7.5)
     colorButton.BackgroundColor3 = Settings[setting]
     colorButton.Text = ""
+    colorButton.BorderSizePixel = 0
     colorButton.Parent = frame
     
     colorButton.MouseButton1Click:Connect(function()
         local hue = tick() % 1
         local color = Color3.fromHSV(hue, 1, 1)
         Settings[setting] = color
-        colorButton.BackgroundColor3 = color
+        TweenService:Create(colorButton, TweenInfo.new(0.3), {BackgroundColor3 = color}):Play()
     end)
 end
 
 -- ===== TWORZENIE ZAKŁADEK =====
+for i, tabName in ipairs(Tabs) do
+    createTab(tabName, i)
+end
+
+-- Zawartość zakładek
 local aimbotContent = Instance.new("ScrollingFrame")
 aimbotContent.Size = UDim2.new(1, 0, 1, 0)
 aimbotContent.BackgroundTransparency = 1
-aimbotContent.CanvasSize = UDim2.new(0, 0, 0, 300)
-aimbotContent.ScrollBarThickness = 5
+aimbotContent.CanvasSize = UDim2.new(0, 0, 0, 350)
+aimbotContent.ScrollBarThickness = 3
 aimbotContent.Visible = false
 aimbotContent.Parent = ContentFrame
 
 local espContent = Instance.new("ScrollingFrame")
 espContent.Size = UDim2.new(1, 0, 1, 0)
 espContent.BackgroundTransparency = 1
-espContent.CanvasSize = UDim2.new(0, 0, 0, 350)
-espContent.ScrollBarThickness = 5
+espContent.CanvasSize = UDim2.new(0, 0, 0, 400)
+espContent.ScrollBarThickness = 3
 espContent.Visible = false
 espContent.Parent = ContentFrame
 
@@ -321,7 +434,7 @@ local hitboxContent = Instance.new("ScrollingFrame")
 hitboxContent.Size = UDim2.new(1, 0, 1, 0)
 hitboxContent.BackgroundTransparency = 1
 hitboxContent.CanvasSize = UDim2.new(0, 0, 0, 150)
-hitboxContent.ScrollBarThickness = 5
+hitboxContent.ScrollBarThickness = 3
 hitboxContent.Visible = false
 hitboxContent.Parent = ContentFrame
 
@@ -329,7 +442,7 @@ local infoContent = Instance.new("ScrollingFrame")
 infoContent.Size = UDim2.new(1, 0, 1, 0)
 infoContent.BackgroundTransparency = 1
 infoContent.CanvasSize = UDim2.new(0, 0, 0, 200)
-infoContent.ScrollBarThickness = 5
+infoContent.ScrollBarThickness = 3
 infoContent.Visible = false
 infoContent.Parent = ContentFrame
 
@@ -352,15 +465,15 @@ createColorButton(espContent, "Team Color", "ESPTeamColor", 310)
 
 -- Hitbox settings
 createToggle(hitboxContent, "Hitbox", "Hitbox", 10)
-createSlider(hitboxContent, "Size", "HitboxSize", 1, 10, 60)
+createSlider(hitboxContent, "Hitbox Size", "HitboxSize", 1, 5, 60)
 
 -- Info
 local infoLabel = Instance.new("TextLabel")
 infoLabel.Size = UDim2.new(1, 0, 1, 0)
 infoLabel.BackgroundTransparency = 1
-infoLabel.Text = "XENO ULTIMATE CHEAT v3.0\n\nAimbot - automatyczne celowanie\nESP - widzenie przez ściany\nHitbox - powiększone hitboxy\n\nNaciśnij RightShift aby ukryć/pokazać menu\n\nWszystkie ustawienia są zapisywane automatycznie"
-infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-infoLabel.TextSize = 16
+infoLabel.Text = "XENO ULTIMATE CHEAT v5.0\n\nAimbot - automatyczne celowanie\nESP - widzenie przez ściany\nHitbox - powiększone hitboxy\n\nNaciśnij RightShift aby ukryć/pokazać menu"
+infoLabel.TextColor3 = Colors.Text
+infoLabel.TextSize = 14
 infoLabel.Font = Enum.Font.Gotham
 infoLabel.TextWrapped = true
 infoLabel.Parent = infoContent
@@ -371,9 +484,14 @@ local contents = {aimbotContent, espContent, hitboxContent, infoContent}
 for i, button in ipairs(TabButtons) do
     button.MouseButton1Click:Connect(function()
         for j, btn in ipairs(TabButtons) do
-            btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+            btn.TextColor3 = Colors.TextDark
         end
-        button.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+        button.TextColor3 = Colors.Accent
+        
+        -- Animacja wskaźnika
+        TweenService:Create(TabIndicator, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, (i - 1) * 110 + 10, 1, -3)
+        }):Play()
         
         for j, content in ipairs(contents) do
             content.Visible = (i == j)
@@ -382,11 +500,16 @@ for i, button in ipairs(TabButtons) do
 end
 
 -- Ustaw pierwszą zakładkę jako aktywną
-TabButtons[1].BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+TabButtons[1].TextColor3 = Colors.Accent
 aimbotContent.Visible = true
 
 -- ===== PRZYCISK ZAMKNIĘCIA =====
 CloseButton.MouseButton1Click:Connect(function()
+    TweenService:Create(MainFrame, TweenInfo.new(0.3), {
+        Size = UDim2.new(0, 0, 0, 0),
+        BackgroundTransparency = 1
+    }):Play()
+    task.wait(0.3)
     ScreenGui:Destroy()
 end)
 
@@ -395,7 +518,20 @@ local menuVisible = true
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == Settings.MenuKey then
         menuVisible = not menuVisible
-        MainFrame.Visible = menuVisible
+        if menuVisible then
+            MainFrame.Visible = true
+            TweenService:Create(MainFrame, TweenInfo.new(0.3), {
+                Size = UDim2.new(0, 600, 0, 400),
+                BackgroundTransparency = 0
+            }):Play()
+        else
+            TweenService:Create(MainFrame, TweenInfo.new(0.3), {
+                Size = UDim2.new(0, 0, 0, 0),
+                BackgroundTransparency = 1
+            }):Play()
+            task.wait(0.3)
+            MainFrame.Visible = false
+        end
     end
 end)
 
@@ -416,10 +552,9 @@ end
 
 local function enlargeHitbox(character)
     if not Settings.Hitbox then return end
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            part.Size = part.Size * Settings.HitboxSize
-        end
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if rootPart then
+        rootPart.Size = rootPart.Size * (1 + (Settings.HitboxSize - 1) * 0.1)
     end
 end
 
@@ -438,12 +573,12 @@ local function createESP(player)
     esp.Box.Color = Settings.ESPColor
     esp.Box.Filled = false
     
-    esp.Name.Size = 14
+    esp.Name.Size = 13
     esp.Name.Center = true
     esp.Name.Outline = true
     esp.Name.Color = Color3.fromRGB(255, 255, 255)
     
-    esp.Distance.Size = 12
+    esp.Distance.Size = 11
     esp.Distance.Center = true
     esp.Distance.Outline = true
     esp.Distance.Color = Color3.fromRGB(255, 255, 0)
@@ -509,7 +644,7 @@ local function updateESP(esp)
     
     if Settings.ESPName then
         esp.Name.Visible = true
-        esp.Name.Position = Vector2.new(headScreen.X, headScreen.Y - 30)
+        esp.Name.Position = Vector2.new(headScreen.X, headScreen.Y - 25)
         esp.Name.Text = player.Name
     else
         esp.Name.Visible = false
@@ -598,5 +733,6 @@ for _, player in ipairs(Players:GetPlayers()) do
     end
 end
 
-print("✅ XENO ULTIMATE CHEAT z menu załadowany!")
+print("✅ XENO ULTIMATE CHEAT v5.0 załadowany!")
 print("Naciśnij RightShift aby ukryć/pokazać menu")
+

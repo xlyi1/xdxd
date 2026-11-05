@@ -1,5 +1,5 @@
 --[[
-   XENO ULTIMATE v5.3 - ESC MENU + USER CONFIG
+   XENO ULTIMATE v5.6 - RIGHTSHIFT INPUT FIX + USER CONFIG
    - ESC otwiera/zamyka własne menu (przechwytuje domyślne ESC Roblox)
    - Ustawienia startują wyłączone; użytkownik wybiera je w menu
    - Kursor do ustawiania
@@ -81,6 +81,8 @@ MainFrame.Parent = ScreenGui
 local menuVisible = false
 local menuTween = nil
 local previousMouseBehavior = nil
+local previousMouseIconEnabled = nil
+local cursorEnforcerConnection = nil
 local MENU_SIZE = UDim2.new(0, 600, 0, 400)
 
 local function setMenuVisible(visible)
@@ -98,7 +100,20 @@ local function setMenuVisible(visible)
     if visible then
         MainFrame.Visible = true
         previousMouseBehavior = UserInputService.MouseBehavior
+        previousMouseIconEnabled = UserInputService.MouseIconEnabled
+
+        -- Odblokuj i pokaż kursor w grach, które stale ukrywają go podczas rozgrywki.
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+        if cursorEnforcerConnection then
+            cursorEnforcerConnection:Disconnect()
+        end
+        cursorEnforcerConnection = RunService.RenderStepped:Connect(function()
+            if menuVisible then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                UserInputService.MouseIconEnabled = true
+            end
+        end)
 
         local currentCamera = workspace.CurrentCamera
         if currentCamera then
@@ -119,8 +134,18 @@ local function setMenuVisible(visible)
         )
         menuTween:Play()
     else
+        if cursorEnforcerConnection then
+            cursorEnforcerConnection:Disconnect()
+            cursorEnforcerConnection = nil
+        end
         UserInputService.MouseBehavior = previousMouseBehavior or Enum.MouseBehavior.Default
+        if previousMouseIconEnabled ~= nil then
+            UserInputService.MouseIconEnabled = previousMouseIconEnabled
+        else
+            UserInputService.MouseIconEnabled = true
+        end
         previousMouseBehavior = nil
+        previousMouseIconEnabled = nil
         local closingTween = TweenService:Create(
             MainFrame,
             TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
@@ -179,7 +204,7 @@ local SubTitle = Instance.new("TextLabel")
 SubTitle.Size = UDim2.new(0.8, 0, 0.5, 0)
 SubTitle.Position = UDim2.new(0, 15, 0.5, 0)
 SubTitle.BackgroundTransparency = 1
-SubTitle.Text = "ULTIMATE v5.3"
+SubTitle.Text = "ULTIMATE v5.6"
 SubTitle.TextColor3 = Colors.Accent
 SubTitle.TextSize = 12
 SubTitle.Font = Enum.Font.Gotham
@@ -568,7 +593,7 @@ createSlider(hitboxContent, "Hitbox Size", "HitboxSize", 1, 5, 60)
 local infoLabel = Instance.new("TextLabel")
 infoLabel.Size = UDim2.new(1, 0, 1, 0)
 infoLabel.BackgroundTransparency = 1
-infoLabel.Text = "XENO ULTIMATE v5.4\n\nUstawienia zmieniasz samodzielnie w zakładkach.\n\nRightShift otwiera/zamyka panel. ESC pozostaje menu pauzy Roblox.\nNPC Aim Assist działa tylko na modele w Workspace/AimTargets."
+infoLabel.Text = "XENO ULTIMATE v5.6\n\nUstawienia zmieniasz samodzielnie w zakładkach.\n\nRightShift otwiera/zamyka panel. ESC pozostaje menu pauzy Roblox.\nNPC Aim Assist działa tylko na modele w Workspace/AimTargets."
 infoLabel.TextColor3 = Colors.Text
 infoLabel.TextSize = 14
 infoLabel.Font = Enum.Font.Gotham
@@ -603,28 +628,69 @@ CloseButton.MouseButton1Click:Connect(function()
     setMenuVisible(false)
 end)
 
--- ESC pozostaje domyślnym menu pauzy Roblox.
--- RightShift jest obsługiwany przez ContextActionService z wysokim priorytetem,
--- więc działa także wtedy, gdy inne skrypty Roblox oznaczyły wejście jako przetworzone.
+-- ESC zostaje menu pauzy Roblox.
+-- RightShift nasłuchujemy bezpośrednio przez UserInputService.
+-- Nie odrzucamy gameProcessedEvent, bo CoreGui może oznaczyć klawisz jako przetworzony.
+-- Uwaga: PlayerGui nadal rysuje się pod chronionym menu pauzy Roblox.
 local SHIFT_ACTION_NAME = "XenoUltimate_ToggleMenu_RightShift"
-ContextActionService:UnbindAction("XenoUltimate_ToggleMenu_Escape") -- usuń bind ze starszej wersji
+ContextActionService:UnbindAction("XenoUltimate_ToggleMenu_Escape")
 ContextActionService:UnbindAction(SHIFT_ACTION_NAME)
+
+local lastShiftToggle = 0
+local function handleRightShift(inputState)
+    if inputState ~= Enum.UserInputState.Begin then
+        return Enum.ContextActionResult.Pass
+    end
+    if UserInputService:GetFocusedTextBox() then
+        return Enum.ContextActionResult.Pass
+    end
+
+    -- Wspólny debounce: CAS i awaryjny InputBegan nie przełączą menu dwa razy.
+    local now = os.clock()
+    if now - lastShiftToggle >= 0.25 then
+        lastShiftToggle = now
+        toggleMenu()
+    end
+    return Enum.ContextActionResult.Sink
+end
+
+-- Wyższy priorytet niż typowe bindy sterowania gry.
 ContextActionService:BindActionAtPriority(
     SHIFT_ACTION_NAME,
     function(_, inputState)
-        if UserInputService:GetFocusedTextBox() then
-            return Enum.ContextActionResult.Pass
-        end
-
-        if inputState == Enum.UserInputState.Begin then
-            toggleMenu()
-        end
-        return Enum.ContextActionResult.Sink
+        return handleRightShift(inputState)
     end,
     false,
     Enum.ContextActionPriority.High.Value + 100,
     Enum.KeyCode.RightShift
 )
+
+-- Awaryjny nasłuch dla środowisk, w których bind CAS nie dostanie zdarzenia.
+local shiftInputConnection = UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        handleRightShift(Enum.UserInputState.Begin)
+    end
+end)
+
+-- Przy ponownym wykonaniu skryptu poprzedni listener zostanie odłączony
+-- razem ze starym ScreenGui.
+ScreenGui.Destroying:Connect(function()
+    if shiftInputConnection then
+        shiftInputConnection:Disconnect()
+        shiftInputConnection = nil
+    end
+    ContextActionService:UnbindAction(SHIFT_ACTION_NAME)
+    if cursorEnforcerConnection then
+        cursorEnforcerConnection:Disconnect()
+        cursorEnforcerConnection = nil
+    end
+    if menuVisible then
+        UserInputService.MouseBehavior = previousMouseBehavior or Enum.MouseBehavior.Default
+        if previousMouseIconEnabled ~= nil then
+            UserInputService.MouseIconEnabled = previousMouseIconEnabled
+        end
+    end
+end)
 
 -- ===== FUNKCJE CHEATA =====
 local ESPObjects = {}
@@ -927,9 +993,5 @@ for _, player in ipairs(Players:GetPlayers()) do
     trackPlayer(player)
 end
 
-print("✅ XENO ULTIMATE v5.4 załadowany!")
+print("✅ XENO ULTIMATE v5.6 załadowany!")
 print("Naciśnij RightShift, aby otworzyć/zamknąć menu. ESC otwiera menu pauzy Roblox.")
-
-
-print("✅ XENO ULTIMATE v5.2 załadowany!")
-print("Naciśnij RightShift, aby otworzyć/zamknąć menu")

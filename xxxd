@@ -1,8 +1,15 @@
 --[[
-   XENO ULTIMATE CHEAT PACK
-   Aimbot + ESP + Hitbox
-   Wgraj na GitHub i używaj przez loadstring
+   XENO ULTIMATE CHEAT - GUI MENU
+   Aimbot + ESP + Hitbox + Menu
 ]]
+
+-- ===== SERWISY =====
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 -- ===== USTAWIENIA =====
 local Settings = {
@@ -25,17 +32,376 @@ local Settings = {
     
     -- Hitbox
     Hitbox = true,
-    HitboxSize = 3
+    HitboxSize = 3,
+    
+    -- Menu
+    MenuKey = Enum.KeyCode.RightShift
 }
 
--- ===== SERWISY =====
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
+-- ===== TWORZENIE MENU =====
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "XenoCheatMenu"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Główne okno
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 600, 0, 400)
+MainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+MainFrame.BackgroundTransparency = 0.1
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+-- Tytuł
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 1, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "XENO ULTIMATE CHEAT"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 20
+Title.Font = Enum.Font.GothamBold
+Title.Parent = TitleBar
+
+-- Przycisk zamknięcia
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.new(0, 30, 0, 30)
+CloseButton.Position = UDim2.new(1, -35, 0, 5)
+CloseButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 16
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.Parent = TitleBar
+
+-- Zakładki
+local TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1, 0, 0, 40)
+TabBar.Position = UDim2.new(0, 0, 0, 40)
+TabBar.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+TabBar.BorderSizePixel = 0
+TabBar.Parent = MainFrame
+
+local Tabs = {"Aimbot", "ESP", "Hitbox", "Info"}
+local TabButtons = {}
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Size = UDim2.new(1, -20, 1, -100)
+ContentFrame.Position = UDim2.new(0, 10, 0, 90)
+ContentFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+ContentFrame.BorderSizePixel = 0
+ContentFrame.Parent = MainFrame
+
+-- Funkcja do tworzenia zakładek
+local function createTab(name, index)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 120, 0, 30)
+    button.Position = UDim2.new(0, (index - 1) * 125 + 10, 0, 5)
+    button.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    button.Text = name
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextSize = 14
+    button.Font = Enum.Font.Gotham
+    button.Parent = TabBar
+    table.insert(TabButtons, button)
+    return button
+end
+
+-- Funkcja do tworzenia przełącznika
+local function createToggle(parent, name, setting, yPos)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 40)
+    frame.Position = UDim2.new(0, 0, 0, yPos)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.7, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextSize = 14
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local toggle = Instance.new("TextButton")
+    toggle.Size = UDim2.new(0, 50, 0, 25)
+    toggle.Position = UDim2.new(1, -60, 0, 7.5)
+    toggle.BackgroundColor3 = Settings[setting] and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    toggle.Text = Settings[setting] and "ON" or "OFF"
+    toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggle.TextSize = 12
+    toggle.Font = Enum.Font.GothamBold
+    toggle.Parent = frame
+    
+    toggle.MouseButton1Click:Connect(function()
+        Settings[setting] = not Settings[setting]
+        toggle.BackgroundColor3 = Settings[setting] and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+        toggle.Text = Settings[setting] and "ON" or "OFF"
+    end)
+    
+    return toggle
+end
+
+-- Funkcja do tworzenia suwaka
+local function createSlider(parent, name, setting, min, max, yPos)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 50)
+    frame.Position = UDim2.new(0, 0, 0, yPos)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.7, 0, 0.5, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextSize = 14
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Size = UDim2.new(0.3, 0, 0.5, 0)
+    valueLabel.Position = UDim2.new(0.7, 0, 0, 0)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Text = tostring(Settings[setting])
+    valueLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+    valueLabel.TextSize = 14
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    valueLabel.Parent = frame
+    
+    local slider = Instance.new("Frame")
+    slider.Size = UDim2.new(0.9, 0, 0, 5)
+    slider.Position = UDim2.new(0.05, 0, 0.7, 0)
+    slider.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    slider.BorderSizePixel = 0
+    slider.Parent = frame
+    
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((Settings[setting] - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = slider
+    
+    local knob = Instance.new("TextButton")
+    knob.Size = UDim2.new(0, 20, 0, 20)
+    knob.Position = UDim2.new((Settings[setting] - min) / (max - min), -10, 0, -7.5)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.Text = ""
+    knob.BorderSizePixel = 0
+    knob.Parent = slider
+    
+    local dragging = false
+    knob.MouseButton1Down:Connect(function()
+        dragging = true
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local relativeX = math.clamp((input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
+            local value = math.floor(min + (max - min) * relativeX)
+            Settings[setting] = value
+            valueLabel.Text = tostring(value)
+            fill.Size = UDim2.new(relativeX, 0, 1, 0)
+            knob.Position = UDim2.new(relativeX, -10, 0, -7.5)
+        end
+    end)
+    
+    return slider
+end
+
+-- Funkcja do tworzenia dropdown
+local function createDropdown(parent, name, setting, options, yPos)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 50)
+    frame.Position = UDim2.new(0, 0, 0, yPos)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.5, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextSize = 14
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local dropdown = Instance.new("TextButton")
+    dropdown.Size = UDim2.new(0.4, 0, 0, 30)
+    dropdown.Position = UDim2.new(0.55, 0, 0, 10)
+    dropdown.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    dropdown.Text = tostring(Settings[setting])
+    dropdown.TextColor3 = Color3.fromRGB(255, 255, 255)
+    dropdown.TextSize = 12
+    dropdown.Font = Enum.Font.Gotham
+    dropdown.Parent = frame
+    
+    dropdown.MouseButton1Click:Connect(function()
+        local currentIndex = table.find(options, Settings[setting])
+        local nextIndex = (currentIndex % #options) + 1
+        Settings[setting] = options[nextIndex]
+        dropdown.Text = tostring(Settings[setting])
+    end)
+end
+
+-- Funkcja do tworzenia przycisku koloru
+local function createColorButton(parent, name, setting, yPos)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 40)
+    frame.Position = UDim2.new(0, 0, 0, yPos)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.7, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextSize = 14
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    
+    local colorButton = Instance.new("TextButton")
+    colorButton.Size = UDim2.new(0, 50, 0, 25)
+    colorButton.Position = UDim2.new(1, -60, 0, 7.5)
+    colorButton.BackgroundColor3 = Settings[setting]
+    colorButton.Text = ""
+    colorButton.Parent = frame
+    
+    colorButton.MouseButton1Click:Connect(function()
+        local hue = tick() % 1
+        local color = Color3.fromHSV(hue, 1, 1)
+        Settings[setting] = color
+        colorButton.BackgroundColor3 = color
+    end)
+end
+
+-- ===== TWORZENIE ZAKŁADEK =====
+local aimbotContent = Instance.new("ScrollingFrame")
+aimbotContent.Size = UDim2.new(1, 0, 1, 0)
+aimbotContent.BackgroundTransparency = 1
+aimbotContent.CanvasSize = UDim2.new(0, 0, 0, 300)
+aimbotContent.ScrollBarThickness = 5
+aimbotContent.Visible = false
+aimbotContent.Parent = ContentFrame
+
+local espContent = Instance.new("ScrollingFrame")
+espContent.Size = UDim2.new(1, 0, 1, 0)
+espContent.BackgroundTransparency = 1
+espContent.CanvasSize = UDim2.new(0, 0, 0, 350)
+espContent.ScrollBarThickness = 5
+espContent.Visible = false
+espContent.Parent = ContentFrame
+
+local hitboxContent = Instance.new("ScrollingFrame")
+hitboxContent.Size = UDim2.new(1, 0, 1, 0)
+hitboxContent.BackgroundTransparency = 1
+hitboxContent.CanvasSize = UDim2.new(0, 0, 0, 150)
+hitboxContent.ScrollBarThickness = 5
+hitboxContent.Visible = false
+hitboxContent.Parent = ContentFrame
+
+local infoContent = Instance.new("ScrollingFrame")
+infoContent.Size = UDim2.new(1, 0, 1, 0)
+infoContent.BackgroundTransparency = 1
+infoContent.CanvasSize = UDim2.new(0, 0, 0, 200)
+infoContent.ScrollBarThickness = 5
+infoContent.Visible = false
+infoContent.Parent = ContentFrame
+
+-- Aimbot settings
+createToggle(aimbotContent, "Aimbot", "Aimbot", 10)
+createSlider(aimbotContent, "FOV", "AimbotFOV", 10, 360, 60)
+createSlider(aimbotContent, "Smoothness", "AimbotSmoothness", 0.1, 1, 120)
+createDropdown(aimbotContent, "Part", "AimbotPart", {"Head", "HumanoidRootPart", "Torso", "UpperTorso"}, 180)
+createToggle(aimbotContent, "Team Check", "TeamCheck", 240)
+createToggle(aimbotContent, "Visible Check", "VisibleCheck", 290)
+
+-- ESP settings
+createToggle(espContent, "ESP", "ESP", 10)
+createToggle(espContent, "Box", "ESPBox", 60)
+createToggle(espContent, "Lines", "ESPLines", 110)
+createToggle(espContent, "Distance", "ESPDistance", 160)
+createToggle(espContent, "Name", "ESPName", 210)
+createColorButton(espContent, "Enemy Color", "ESPColor", 260)
+createColorButton(espContent, "Team Color", "ESPTeamColor", 310)
+
+-- Hitbox settings
+createToggle(hitboxContent, "Hitbox", "Hitbox", 10)
+createSlider(hitboxContent, "Size", "HitboxSize", 1, 10, 60)
+
+-- Info
+local infoLabel = Instance.new("TextLabel")
+infoLabel.Size = UDim2.new(1, 0, 1, 0)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Text = "XENO ULTIMATE CHEAT v3.0\n\nAimbot - automatyczne celowanie\nESP - widzenie przez ściany\nHitbox - powiększone hitboxy\n\nNaciśnij RightShift aby ukryć/pokazać menu\n\nWszystkie ustawienia są zapisywane automatycznie"
+infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+infoLabel.TextSize = 16
+infoLabel.Font = Enum.Font.Gotham
+infoLabel.TextWrapped = true
+infoLabel.Parent = infoContent
+
+-- ===== LOGIKA ZAKŁADEK =====
+local contents = {aimbotContent, espContent, hitboxContent, infoContent}
+
+for i, button in ipairs(TabButtons) do
+    button.MouseButton1Click:Connect(function()
+        for j, btn in ipairs(TabButtons) do
+            btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        end
+        button.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+        
+        for j, content in ipairs(contents) do
+            content.Visible = (i == j)
+        end
+    end)
+end
+
+-- Ustaw pierwszą zakładkę jako aktywną
+TabButtons[1].BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+aimbotContent.Visible = true
+
+-- ===== PRZYCISK ZAMKNIĘCIA =====
+CloseButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+-- ===== UKRYWANIE MENU =====
+local menuVisible = true
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Settings.MenuKey then
+        menuVisible = not menuVisible
+        MainFrame.Visible = menuVisible
+    end
+end)
+
+-- ===== FUNKCJE CHEATA =====
 local ESPObjects = {}
 
--- ===== FUNKCJE POMOCNICZE =====
 local function isVisible(part)
     if not Settings.VisibleCheck then return true end
     local origin = Camera.CFrame.Position
@@ -232,7 +598,5 @@ for _, player in ipairs(Players:GetPlayers()) do
     end
 end
 
-print("✅ XENO ULTIMATE CHEAT PACK załadowany!")
-print("Aimbot: " .. tostring(Settings.Aimbot))
-print("ESP: " .. tostring(Settings.ESP))
-print("Hitbox: " .. tostring(Settings.Hitbox))
+print("✅ XENO ULTIMATE CHEAT z menu załadowany!")
+print("Naciśnij RightShift aby ukryć/pokazać menu")

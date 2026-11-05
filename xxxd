@@ -1,0 +1,238 @@
+--[[
+   XENO ULTIMATE CHEAT PACK
+   Aimbot + ESP + Hitbox
+   Wgraj na GitHub i używaj przez loadstring
+]]
+
+-- ===== USTAWIENIA =====
+local Settings = {
+    -- Aimbot
+    Aimbot = true,
+    AimbotFOV = 180,
+    AimbotSmoothness = 0.25,
+    AimbotPart = "Head",
+    TeamCheck = true,
+    VisibleCheck = true,
+    
+    -- ESP
+    ESP = true,
+    ESPBox = true,
+    ESPLines = true,
+    ESPDistance = true,
+    ESPName = true,
+    ESPColor = Color3.fromRGB(255, 0, 0),
+    ESPTeamColor = Color3.fromRGB(0, 255, 0),
+    
+    -- Hitbox
+    Hitbox = true,
+    HitboxSize = 3
+}
+
+-- ===== SERWISY =====
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local ESPObjects = {}
+
+-- ===== FUNKCJE POMOCNICZE =====
+local function isVisible(part)
+    if not Settings.VisibleCheck then return true end
+    local origin = Camera.CFrame.Position
+    local direction = (part.Position - origin).Unit
+    local ray = Ray.new(origin, direction * 500)
+    local hit, _ = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
+    if hit then
+        return hit:IsDescendantOf(part.Parent)
+    end
+    return true
+end
+
+local function enlargeHitbox(character)
+    if not Settings.Hitbox then return end
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            part.Size = part.Size * Settings.HitboxSize
+        end
+    end
+end
+
+local function createESP(player)
+    if not Settings.ESP then return end
+    
+    local esp = {
+        Box = Drawing.new("Square"),
+        Name = Drawing.new("Text"),
+        Distance = Drawing.new("Text"),
+        Line = Drawing.new("Line"),
+        Player = player
+    }
+    
+    esp.Box.Thickness = 2
+    esp.Box.Color = Settings.ESPColor
+    esp.Box.Filled = false
+    
+    esp.Name.Size = 14
+    esp.Name.Center = true
+    esp.Name.Outline = true
+    esp.Name.Color = Color3.fromRGB(255, 255, 255)
+    
+    esp.Distance.Size = 12
+    esp.Distance.Center = true
+    esp.Distance.Outline = true
+    esp.Distance.Color = Color3.fromRGB(255, 255, 0)
+    
+    esp.Line.Thickness = 1
+    esp.Line.Color = Settings.ESPColor
+    
+    table.insert(ESPObjects, esp)
+    return esp
+end
+
+local function updateESP(esp)
+    local player = esp.Player
+    local character = player.Character
+    if not character then return end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart or humanoid.Health <= 0 then
+        esp.Box.Visible = false
+        esp.Name.Visible = false
+        esp.Distance.Visible = false
+        esp.Line.Visible = false
+        return
+    end
+    
+    local color = Settings.ESPColor
+    if Settings.TeamCheck and player.Team == LocalPlayer.Team then
+        esp.Box.Visible = false
+        esp.Name.Visible = false
+        esp.Distance.Visible = false
+        esp.Line.Visible = false
+        return
+    elseif player.Team ~= LocalPlayer.Team then
+        color = Settings.ESPTeamColor
+    end
+    
+    local headPos = character.Head.Position
+    local rootPos = rootPart.Position
+    local headScreen, headOnScreen = Camera:WorldToScreenPoint(headPos)
+    local rootScreen, rootOnScreen = Camera:WorldToScreenPoint(rootPos)
+    
+    if not headOnScreen or not rootOnScreen then
+        esp.Box.Visible = false
+        esp.Name.Visible = false
+        esp.Distance.Visible = false
+        esp.Line.Visible = false
+        return
+    end
+    
+    local boxHeight = math.abs(headScreen.Y - rootScreen.Y) * 2
+    local boxWidth = boxHeight * 0.6
+    local boxPos = Vector2.new(rootScreen.X - boxWidth/2, rootScreen.Y - boxHeight/2)
+    
+    if Settings.ESPBox then
+        esp.Box.Visible = true
+        esp.Box.Position = boxPos
+        esp.Box.Size = Vector2.new(boxWidth, boxHeight)
+        esp.Box.Color = color
+    else
+        esp.Box.Visible = false
+    end
+    
+    if Settings.ESPName then
+        esp.Name.Visible = true
+        esp.Name.Position = Vector2.new(headScreen.X, headScreen.Y - 30)
+        esp.Name.Text = player.Name
+    else
+        esp.Name.Visible = false
+    end
+    
+    if Settings.ESPDistance then
+        esp.Distance.Visible = true
+        local dist = math.floor((rootPos - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude)
+        esp.Distance.Position = Vector2.new(rootScreen.X, rootScreen.Y + 10)
+        esp.Distance.Text = tostring(dist) .. " studni"
+    else
+        esp.Distance.Visible = false
+    end
+    
+    if Settings.ESPLines then
+        esp.Line.Visible = true
+        esp.Line.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+        esp.Line.To = Vector2.new(rootScreen.X, rootScreen.Y)
+        esp.Line.Color = color
+    else
+        esp.Line.Visible = false
+    end
+end
+
+-- ===== GŁÓWNA PĘTLA =====
+RunService.RenderStepped:Connect(function()
+    -- Aimbot
+    if Settings.Aimbot then
+        local closest = nil
+        local shortestDist = Settings.AimbotFOV
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local character = player.Character
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                local targetPart = character:FindFirstChild(Settings.AimbotPart) or character:FindFirstChild("HumanoidRootPart")
+                
+                if humanoid and humanoid.Health > 0 and targetPart then
+                    if Settings.TeamCheck and player.Team == LocalPlayer.Team then
+                        continue
+                    end
+                    
+                    if not isVisible(targetPart) then
+                        continue
+                    end
+                    
+                    local screenPos, onScreen = Camera:WorldToScreenPoint(targetPart.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                        if dist < shortestDist then
+                            shortestDist = dist
+                            closest = targetPart
+                        end
+                    end
+                end
+            end
+        end
+        
+        if closest then
+            local lookAt = CFrame.lookAt(Camera.CFrame.Position, closest.Position)
+            Camera.CFrame = Camera.CFrame:Lerp(lookAt, Settings.AimbotSmoothness)
+        end
+    end
+    
+    -- ESP
+    if Settings.ESP then
+        for _, esp in ipairs(ESPObjects) do
+            updateESP(esp)
+        end
+    end
+end)
+
+-- ===== INICJALIZACJA =====
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(character)
+        task.wait(0.1)
+        createESP(player)
+        enlargeHitbox(character)
+    end)
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+    if player.Character then
+        createESP(player)
+        enlargeHitbox(player.Character)
+    end
+end
+
+print("✅ XENO ULTIMATE CHEAT PACK załadowany!")
+print("Aimbot: " .. tostring(Settings.Aimbot))
+print("ESP: " .. tostring(Settings.ESP))
+print("Hitbox: " .. tostring(Settings.Hitbox))

@@ -1,5 +1,5 @@
 --[[
-   XENO ULTIMATE v5.6 - RIGHTSHIFT INPUT FIX + USER CONFIG
+   XENO ULTIMATE v5.7 - GUI PARENT + VISIBILITY FIX
    - ESC otwiera/zamyka własne menu (przechwytuje domyślne ESC Roblox)
    - Ustawienia startują wyłączone; użytkownik wybiera je w menu
    - Kursor do ustawiania
@@ -41,18 +41,57 @@ local Settings = {
 
 -- ===== STYL MENU =====
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-local previousGui = playerGui:FindFirstChild("XenoCheatMenu")
-if previousGui then
-    previousGui:Destroy()
+local guiContainers = {}
+
+-- Preferowany kontener UI executora, jeśli jest dostępny.
+if type(gethui) == "function" then
+    local ok, hiddenGui = pcall(gethui)
+    if ok and hiddenGui then
+        table.insert(guiContainers, hiddenGui)
+    end
+end
+
+-- CoreGui jako drugi wybór dla środowisk, które pozwalają na taki parent.
+local coreGui = game:GetService("CoreGui")
+table.insert(guiContainers, coreGui)
+-- PlayerGui pozostaje kompatybilnym fallbackiem dla zwykłego LocalScript.
+table.insert(guiContainers, playerGui)
+
+-- Usuń poprzednią instancję z każdego dostępnego kontenera.
+local checkedParents = {}
+for _, container in ipairs(guiContainers) do
+    if container and not checkedParents[container] then
+        checkedParents[container] = true
+        local oldGui = container:FindFirstChild("XenoCheatMenu")
+        if oldGui then
+            oldGui:Destroy()
+        end
+    end
 end
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "XenoCheatMenu"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true
-ScreenGui.DisplayOrder = 10000
+ScreenGui.Enabled = true
+ScreenGui.DisplayOrder = 1000000
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-ScreenGui.Parent = playerGui
+
+local guiParented = false
+for _, container in ipairs(guiContainers) do
+    local ok = pcall(function()
+        ScreenGui.Parent = container
+    end)
+    if ok and ScreenGui.Parent == container then
+        guiParented = true
+        break
+    end
+end
+
+if not guiParented then
+    ScreenGui:Destroy()
+    error("XENO: Nie udało się umieścić ScreenGui w gethui, CoreGui ani PlayerGui.")
+end
 
 local Colors = {
     Background = Color3.fromRGB(20, 20, 30),
@@ -79,7 +118,6 @@ MainFrame.Visible = false
 MainFrame.Parent = ScreenGui
 
 local menuVisible = false
-local menuTween = nil
 local previousMouseBehavior = nil
 local previousMouseIconEnabled = nil
 local cursorEnforcerConnection = nil
@@ -92,19 +130,20 @@ local function setMenuVisible(visible)
 
     menuVisible = visible
 
-    if menuTween then
-        menuTween:Cancel()
-        menuTween = nil
-    end
-
     if visible then
+        -- Wyświetl okno od razu. Bez animacji startującej od rozmiaru 0,
+        -- aby menu nie znikało w środowiskach z niestandardowym renderowaniem GUI.
+        ScreenGui.Enabled = true
+        MainFrame.Size = MENU_SIZE
+        MainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+        MainFrame.BackgroundTransparency = 0
         MainFrame.Visible = true
+
         previousMouseBehavior = UserInputService.MouseBehavior
         previousMouseIconEnabled = UserInputService.MouseIconEnabled
-
-        -- Odblokuj i pokaż kursor w grach, które stale ukrywają go podczas rozgrywki.
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
+
         if cursorEnforcerConnection then
             cursorEnforcerConnection:Disconnect()
         end
@@ -112,32 +151,21 @@ local function setMenuVisible(visible)
             if menuVisible then
                 UserInputService.MouseBehavior = Enum.MouseBehavior.Default
                 UserInputService.MouseIconEnabled = true
+                if not ScreenGui.Enabled then
+                    ScreenGui.Enabled = true
+                end
+                if not MainFrame.Visible then
+                    MainFrame.Visible = true
+                end
             end
         end)
-
-        local currentCamera = workspace.CurrentCamera
-        if currentCamera then
-            pcall(function()
-                GuiService:SetCursorPosition(Vector2.new(
-                    currentCamera.ViewportSize.X / 2,
-                    currentCamera.ViewportSize.Y / 2
-                ))
-            end)
-        end
-
-        MainFrame.Size = UDim2.new(0, 0, 0, 0)
-        MainFrame.BackgroundTransparency = 1
-        menuTween = TweenService:Create(
-            MainFrame,
-            TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-            {Size = MENU_SIZE, BackgroundTransparency = 0}
-        )
-        menuTween:Play()
     else
         if cursorEnforcerConnection then
             cursorEnforcerConnection:Disconnect()
             cursorEnforcerConnection = nil
         end
+
+        MainFrame.Visible = false
         UserInputService.MouseBehavior = previousMouseBehavior or Enum.MouseBehavior.Default
         if previousMouseIconEnabled ~= nil then
             UserInputService.MouseIconEnabled = previousMouseIconEnabled
@@ -146,20 +174,6 @@ local function setMenuVisible(visible)
         end
         previousMouseBehavior = nil
         previousMouseIconEnabled = nil
-        local closingTween = TweenService:Create(
-            MainFrame,
-            TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-            {Size = UDim2.new(0, 0, 0, 0), BackgroundTransparency = 1}
-        )
-        menuTween = closingTween
-        closingTween.Completed:Connect(function(playbackState)
-            if playbackState == Enum.PlaybackState.Completed
-                and not menuVisible
-                and menuTween == closingTween then
-                MainFrame.Visible = false
-            end
-        end)
-        closingTween:Play()
     end
 end
 
@@ -204,7 +218,7 @@ local SubTitle = Instance.new("TextLabel")
 SubTitle.Size = UDim2.new(0.8, 0, 0.5, 0)
 SubTitle.Position = UDim2.new(0, 15, 0.5, 0)
 SubTitle.BackgroundTransparency = 1
-SubTitle.Text = "ULTIMATE v5.6"
+SubTitle.Text = "ULTIMATE v5.7"
 SubTitle.TextColor3 = Colors.Accent
 SubTitle.TextSize = 12
 SubTitle.Font = Enum.Font.Gotham
@@ -593,7 +607,7 @@ createSlider(hitboxContent, "Hitbox Size", "HitboxSize", 1, 5, 60)
 local infoLabel = Instance.new("TextLabel")
 infoLabel.Size = UDim2.new(1, 0, 1, 0)
 infoLabel.BackgroundTransparency = 1
-infoLabel.Text = "XENO ULTIMATE v5.6\n\nUstawienia zmieniasz samodzielnie w zakładkach.\n\nRightShift otwiera/zamyka panel. ESC pozostaje menu pauzy Roblox.\nNPC Aim Assist działa tylko na modele w Workspace/AimTargets."
+infoLabel.Text = "XENO ULTIMATE v5.7\n\nUstawienia zmieniasz samodzielnie w zakładkach.\n\nRightShift otwiera/zamyka panel. ESC pozostaje menu pauzy Roblox.\nNPC Aim Assist działa tylko na modele w Workspace/AimTargets."
 infoLabel.TextColor3 = Colors.Text
 infoLabel.TextSize = 14
 infoLabel.Font = Enum.Font.Gotham
@@ -993,5 +1007,5 @@ for _, player in ipairs(Players:GetPlayers()) do
     trackPlayer(player)
 end
 
-print("✅ XENO ULTIMATE v5.6 załadowany!")
+print("✅ XENO ULTIMATE v5.7 załadowany!")
 print("Naciśnij RightShift, aby otworzyć/zamknąć menu. ESC otwiera menu pauzy Roblox.")

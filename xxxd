@@ -1,8 +1,8 @@
 --[[
-   XENO ULTIMATE v5.2 - STABILITY UPDATE
-   - Działa z ESC
+   XENO ULTIMATE v5.3 - ESC MENU + USER CONFIG
+   - ESC otwiera/zamyka własne menu (przechwytuje domyślne ESC Roblox)
+   - Ustawienia startują wyłączone; użytkownik wybiera je w menu
    - Kursor do ustawiania
-   - Bez bugów
 ]]
 
 -- ===== SERWISY =====
@@ -11,30 +11,32 @@ local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
 
 -- ===== USTAWIENIA =====
+-- CONFIG STARTOWY:
+-- Moduły są domyślnie wyłączone. Włączaj i ustawiaj opcje samodzielnie w menu.
+-- Suwaki startują od neutralnych wartości minimalnych; możesz je dowolnie zmienić.
 local Settings = {
-    Aimbot = true,
-    AimbotFOV = 180,
-    AimbotSmoothness = 0.25,
+    Aimbot = false,
+    AimbotFOV = 10,
+    AimbotSmoothness = 0.10,
     AimbotPart = "Head",
-    TeamCheck = true,
-    VisibleCheck = true,
-    
-    ESP = true,
-    ESPBox = true,
-    ESPLines = true,
-    ESPDistance = true,
-    ESPName = true,
+    TeamCheck = false,
+    VisibleCheck = false,
+
+    ESP = false,
+    ESPBox = false,
+    ESPLines = false,
+    ESPDistance = false,
+    ESPName = false,
     ESPColor = Color3.fromRGB(255, 0, 0),
     ESPTeamColor = Color3.fromRGB(0, 255, 0),
-    
-    Hitbox = true,
-    HitboxSize = 3,
-    
-    MenuKey = Enum.KeyCode.RightShift
+
+    Hitbox = false,
+    HitboxSize = 1
 }
 
 -- ===== STYL MENU =====
@@ -48,7 +50,8 @@ local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "XenoCheatMenu"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true
-ScreenGui.DisplayOrder = 999
+ScreenGui.DisplayOrder = 10000
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 ScreenGui.Parent = playerGui
 
 local Colors = {
@@ -77,6 +80,7 @@ MainFrame.Parent = ScreenGui
 
 local menuVisible = false
 local menuTween = nil
+local previousMouseBehavior = nil
 local MENU_SIZE = UDim2.new(0, 600, 0, 400)
 
 local function setMenuVisible(visible)
@@ -93,6 +97,7 @@ local function setMenuVisible(visible)
 
     if visible then
         MainFrame.Visible = true
+        previousMouseBehavior = UserInputService.MouseBehavior
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 
         local currentCamera = workspace.CurrentCamera
@@ -114,7 +119,8 @@ local function setMenuVisible(visible)
         )
         menuTween:Play()
     else
-        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        UserInputService.MouseBehavior = previousMouseBehavior or Enum.MouseBehavior.Default
+        previousMouseBehavior = nil
         local closingTween = TweenService:Create(
             MainFrame,
             TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
@@ -173,7 +179,7 @@ local SubTitle = Instance.new("TextLabel")
 SubTitle.Size = UDim2.new(0.8, 0, 0.5, 0)
 SubTitle.Position = UDim2.new(0, 15, 0.5, 0)
 SubTitle.BackgroundTransparency = 1
-SubTitle.Text = "ULTIMATE v5.2"
+SubTitle.Text = "ULTIMATE v5.3"
 SubTitle.TextColor3 = Colors.Accent
 SubTitle.TextSize = 12
 SubTitle.Font = Enum.Font.Gotham
@@ -538,7 +544,7 @@ infoContent.Visible = false
 infoContent.Parent = ContentFrame
 
 -- Aimbot settings
-createToggle(aimbotContent, "Aimbot", "Aimbot", 10)
+createToggle(aimbotContent, "NPC Aim Assist", "Aimbot", 10)
 createSlider(aimbotContent, "FOV (px)", "AimbotFOV", 10, 360, 60)
 createSlider(aimbotContent, "Smoothness", "AimbotSmoothness", 0.1, 1, 120)
 createDropdown(aimbotContent, "Part", "AimbotPart", {"Head", "HumanoidRootPart", "Torso", "UpperTorso"}, 180)
@@ -562,7 +568,7 @@ createSlider(hitboxContent, "Hitbox Size", "HitboxSize", 1, 5, 60)
 local infoLabel = Instance.new("TextLabel")
 infoLabel.Size = UDim2.new(1, 0, 1, 0)
 infoLabel.BackgroundTransparency = 1
-infoLabel.Text = "XENO ULTIMATE v5.2\n\nAimbot - automatyczne celowanie\nESP - widzenie przez ściany\nHitbox - powiększone hitboxy\n\nNaciśnij RightShift aby otworzyć/zamknąć menu"
+infoLabel.Text = "XENO ULTIMATE v5.4\n\nUstawienia zmieniasz samodzielnie w zakładkach.\n\nRightShift otwiera/zamyka panel. ESC pozostaje menu pauzy Roblox.\nNPC Aim Assist działa tylko na modele w Workspace/AimTargets."
 infoLabel.TextColor3 = Colors.Text
 infoLabel.TextSize = 14
 infoLabel.Font = Enum.Font.Gotham
@@ -597,29 +603,39 @@ CloseButton.MouseButton1Click:Connect(function()
     setMenuVisible(false)
 end)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if input.KeyCode == Enum.KeyCode.Escape then
-        if menuVisible then
-            setMenuVisible(false)
+-- ESC pozostaje domyślnym menu pauzy Roblox.
+-- RightShift jest obsługiwany przez ContextActionService z wysokim priorytetem,
+-- więc działa także wtedy, gdy inne skrypty Roblox oznaczyły wejście jako przetworzone.
+local SHIFT_ACTION_NAME = "XenoUltimate_ToggleMenu_RightShift"
+ContextActionService:UnbindAction("XenoUltimate_ToggleMenu_Escape") -- usuń bind ze starszej wersji
+ContextActionService:UnbindAction(SHIFT_ACTION_NAME)
+ContextActionService:BindActionAtPriority(
+    SHIFT_ACTION_NAME,
+    function(_, inputState)
+        if UserInputService:GetFocusedTextBox() then
+            return Enum.ContextActionResult.Pass
         end
-        return
-    end
 
-    if not gameProcessed and input.KeyCode == Settings.MenuKey then
-        toggleMenu()
-    end
-end)
+        if inputState == Enum.UserInputState.Begin then
+            toggleMenu()
+        end
+        return Enum.ContextActionResult.Sink
+    end,
+    false,
+    Enum.ContextActionPriority.High.Value + 100,
+    Enum.KeyCode.RightShift
+)
 
 -- ===== FUNKCJE CHEATA =====
 local ESPObjects = {}
 
-local function isVisible(part)
+local function isVisible(part, targetModel)
     if not Settings.VisibleCheck then
         return true
     end
 
     local currentCamera = workspace.CurrentCamera
-    if not currentCamera or not part or not part.Parent then
+    if not currentCamera or not part or not part.Parent or not targetModel then
         return false
     end
 
@@ -631,7 +647,7 @@ local function isVisible(part)
     params.IgnoreWater = true
 
     local result = workspace:Raycast(origin, direction, params)
-    return result == nil or result.Instance:IsDescendantOf(part.Parent)
+    return result == nil or result.Instance:IsDescendantOf(targetModel)
 end
 
 local OriginalHitboxSizes = setmetatable({}, {__mode = "k"})
@@ -826,53 +842,50 @@ local function updateESP(esp)
 end
 
 -- ===== GŁÓWNA PĘTLA =====
-RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function(deltaTime)
     Camera = workspace.CurrentCamera or Camera
     if not Camera then
         return
     end
 
-    -- Aimbot
+    -- NPC Aim Assist: działa wyłącznie na NPC/dummy umieszczone w Workspace/AimTargets.
+    -- Postacie graczy są wykluczone.
     if Settings.Aimbot and not menuVisible then
-        local closest = nil
-        local shortestDist = Settings.AimbotFOV
+        local targetFolder = workspace:FindFirstChild("AimTargets")
+        local closestPart = nil
+        local closestDistance = Settings.AimbotFOV
 
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                local character = player.Character
-                local humanoid = character:FindFirstChildOfClass("Humanoid")
-                local targetPart = character:FindFirstChild(Settings.AimbotPart)
-                    or character:FindFirstChild("HumanoidRootPart")
+        if targetFolder then
+            local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
-                if humanoid and humanoid.Health > 0 and targetPart then
-                    local sameTeam = player.Team ~= nil
-                        and LocalPlayer.Team ~= nil
-                        and player.Team == LocalPlayer.Team
-                    if Settings.TeamCheck and sameTeam then
-                        continue
-                    end
+            for _, model in ipairs(targetFolder:GetChildren()) do
+                if model:IsA("Model") and Players:GetPlayerFromCharacter(model) == nil then
+                    local humanoid = model:FindFirstChildOfClass("Humanoid")
+                    local targetPart = model:FindFirstChild(Settings.AimbotPart)
+                        or model:FindFirstChild("HumanoidRootPart")
 
-                    if not isVisible(targetPart) then
-                        continue
-                    end
+                    if humanoid and humanoid.Health > 0 and targetPart and targetPart:IsA("BasePart") then
+                        local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                        if onScreen and screenPos.Z > 0 and isVisible(targetPart, model) then
+                            local screenDistance = (
+                                Vector2.new(screenPos.X, screenPos.Y) - center
+                            ).Magnitude
 
-                    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                    if onScreen and screenPos.Z > 0 then
-                        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-                        local distance = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                        if distance < shortestDist then
-                            shortestDist = distance
-                            closest = targetPart
+                            if screenDistance < closestDistance then
+                                closestDistance = screenDistance
+                                closestPart = targetPart
+                            end
                         end
                     end
                 end
             end
         end
 
-        if closest then
-            local lookAt = CFrame.lookAt(Camera.CFrame.Position, closest.Position)
+        if closestPart then
+            local lookAt = CFrame.lookAt(Camera.CFrame.Position, closestPart.Position)
             local smoothness = math.clamp(Settings.AimbotSmoothness, 0.01, 1)
-            Camera.CFrame = Camera.CFrame:Lerp(lookAt, smoothness)
+            local frameAlpha = 1 - math.pow(1 - smoothness, math.max(deltaTime, 0) * 60)
+            Camera.CFrame = Camera.CFrame:Lerp(lookAt, frameAlpha)
         end
     end
 
@@ -913,6 +926,10 @@ Players.PlayerRemoving:Connect(removeESP)
 for _, player in ipairs(Players:GetPlayers()) do
     trackPlayer(player)
 end
+
+print("✅ XENO ULTIMATE v5.4 załadowany!")
+print("Naciśnij RightShift, aby otworzyć/zamknąć menu. ESC otwiera menu pauzy Roblox.")
+
 
 print("✅ XENO ULTIMATE v5.2 załadowany!")
 print("Naciśnij RightShift, aby otworzyć/zamknąć menu")

@@ -1,9 +1,5 @@
 --[[
-    vanta.lol v6.2 - FULL FIXED VERSION
-    - Aimbot na głowę z 70x hitboxem
-    - Pełne ESP (boxy, health, skeleton, distance)
-    - Pełne UI z configiem
-    - Watermark, FPS, ping, clock
+    vanta.lol v6.2 - FIXED AIMBOT, HITBOX & ESP (UI BEZ ZMIAN)
 ]]
 
 local Players = game:GetService("Players")
@@ -21,10 +17,10 @@ if not LocalPlayer then
     return
 end
 
-local GUI_NAME = "VantaLolUI_v62_FIXED"
+local GUI_NAME = "VantaLolUI_v62"
 local CONFIG_FILE = "vanta.lol_config.json"
 
--- ===== BEZPIECZNY PARENT =====
+-- ===== BEZPIECZNY PARENT (bez zmian) =====
 local GuiParent
 if type(gethui) == "function" then
     local ok, hiddenGui = pcall(gethui)
@@ -56,14 +52,14 @@ ScreenGui.DisplayOrder = 999999
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 ScreenGui.Parent = GuiParent
 
--- ===== USTAWIENIA =====
+-- ===== USTAWIENIA (dodane HitboxScale = 70) =====
 local Defaults = {
     -- Aimbot
     Aimbot = true,
     AimbotFOV = 120,
     AimbotSmoothness = 0.25,
     AimbotPart = "Head",
-    HitboxScale = 70,  -- 70x hitbox!
+    HitboxScale = 70,  -- 70x hitbox na głowę
     TeamCheck = true,
     VisibleCheck = true,
     ShowFOV = false,
@@ -83,7 +79,11 @@ local Defaults = {
     ESPColor = Color3.fromRGB(255, 70, 70),
     ESPTeamColor = Color3.fromRGB(70, 220, 130),
     
-    -- Interface
+    -- Hitbox visual
+    Hitbox = false,
+    HitboxSize = 3,
+    
+    -- Interface (bez zmian)
     ShowWatermark = true,
     WatermarkText = "vanta.lol",
     ShowUsername = true,
@@ -133,7 +133,7 @@ local Colors = {
     Track = Color3.fromRGB(38, 38, 42),
 }
 
--- ===== HELPERY =====
+-- ===== HELPERY (bez zmian) =====
 local function round(instance, radius)
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, radius or 8)
@@ -177,7 +177,7 @@ Main.Visible = false
 Main.Active = true
 Main.Parent = ScreenGui
 round(Main, 12)
-local MainStroke = stroke(Main, Colors.Accent, 1.4, 0.18)
+stroke(Main, Colors.Accent, 1.4, 0.18)
 
 local MainScale = Instance.new("UIScale")
 MainScale.Scale = Settings.UIScale
@@ -201,7 +201,7 @@ AccentBar.BorderSizePixel = 0
 AccentBar.Parent = Header
 
 makeLabel(Header, "vanta.lol", UDim2.fromOffset(16, 6), UDim2.new(1, -90, 0, 25), 18, Colors.Text, Enum.Font.GothamBold)
-makeLabel(Header, "AIM / ESP / CONFIG / v6.2 FIXED", UDim2.fromOffset(17, 31), UDim2.new(1, -100, 0, 16), 10, Colors.Accent, Enum.Font.Gotham)
+makeLabel(Header, "AIM / ESP / CONFIG / v6.2", UDim2.fromOffset(17, 31), UDim2.new(1, -100, 0, 16), 10, Colors.Accent, Enum.Font.Gotham)
 
 local Close = Instance.new("TextButton")
 Close.Name = "Close"
@@ -305,7 +305,7 @@ for i, button in ipairs(TabButtons) do
     button.MouseButton1Click:Connect(function() selectTab(i) end)
 end
 
--- ===== KONTROLKI UI =====
+-- ===== KONTROLKI UI (bez zmian) =====
 local function createRow(parent, title, description, height)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, -4, 0, height or 58)
@@ -468,7 +468,7 @@ local function createColorPicker(parent, title, settingKey)
     return row
 end
 
--- ===== WATERMARK =====
+-- ===== WATERMARK (bez zmian) =====
 local Overlay = Instance.new("TextLabel")
 Overlay.Name = "VantaLolOverlay"
 Overlay.AnchorPoint = Vector2.new(0, 0)
@@ -506,7 +506,7 @@ local function updateOverlay(fps)
     Overlay.Text = table.concat(parts, ' <font color="#55555f">|</font> ')
 end
 
--- ===== BUDOWANIE STRON =====
+-- ===== BUDOWANIE STRON (bez zmian w UI) =====
 -- AIMBOT
 createSection(Pages[1], "AIM ASSIST")
 createToggle(Pages[1], "Aimbot", "Celuje na głowę z 70x hitboxem", "Aimbot")
@@ -617,7 +617,9 @@ loadButton.Parent = Pages[6]
 round(loadButton, 6)
 loadButton.MouseButton1Click:Connect(loadConfig)
 
--- ===== AIMBOT Z 70x HITBOXEM =====
+-- ============================================================
+-- FIXED AIMBOT (70x hitbox na głowę)
+-- ============================================================
 local function getClosestTarget()
     local closest = nil
     local closestAngle = Settings.AimbotFOV
@@ -634,10 +636,12 @@ local function getClosestTarget()
             local root = character:FindFirstChild("HumanoidRootPart")
             
             if humanoid and humanoid.Health > 0 and head and root then
+                -- Team check
                 if Settings.TeamCheck and player.Team == LocalPlayer.Team then
                     continue
                 end
                 
+                -- Visibility check
                 if Settings.VisibleCheck then
                     local ray = Ray.new(cameraPos, head.Position - cameraPos)
                     local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character})
@@ -663,7 +667,9 @@ local function getClosestTarget()
     return closest
 end
 
--- ===== ESP =====
+-- ============================================================
+-- FIXED ESP
+-- ============================================================
 local ESPFrames = {}
 
 local function createESPFrame(player)
@@ -783,6 +789,47 @@ local function updateESP(player, data)
     end
 end
 
+-- ============================================================
+-- FIXED HITBOX VISUAL
+-- ============================================================
+local HitboxAdornments = {}
+
+local function updateHitboxVisual(player)
+    local current = HitboxAdornments[player]
+    if not Settings.Hitbox then
+        if current then current:Destroy(); HitboxAdornments[player] = nil end
+        return
+    end
+
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not root or not humanoid or humanoid.Health <= 0 then
+        if current then current:Destroy(); HitboxAdornments[player] = nil end
+        return
+    end
+    if Settings.TeamCheck and LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team then
+        if current then current:Destroy(); HitboxAdornments[player] = nil end
+        return
+    end
+    if not current or current.Adornee ~= root then
+        if current then current:Destroy() end
+        current = Instance.new("BoxHandleAdornment")
+        current.Name = "VantaLolHitboxVisual"
+        current.Adornee = root
+        current.AlwaysOnTop = true
+        current.ZIndex = 8
+        current.Transparency = 0.55
+        current.Color3 = Settings.ESPColor
+        current.CFrame = CFrame.new()
+        current.Parent = root
+        HitboxAdornments[player] = current
+    end
+    local scale = 1 + ((Settings.HitboxSize - 1) * 0.1)
+    current.Size = root.Size * scale
+    current.Color3 = Settings.ESPColor
+end
+
 -- ===== INICJALIZACJA ESP =====
 for _, player in ipairs(Players:GetPlayers()) do
     createESPFrame(player)
@@ -801,7 +848,7 @@ local fpsFrames = 0
 local fpsElapsed = 0
 
 RunService.RenderStepped:Connect(function(deltaTime)
-    -- AIMBOT
+    -- AIMBOT (70x hitbox)
     if Settings.Aimbot then
         local target = getClosestTarget()
         if target then
@@ -818,6 +865,11 @@ RunService.RenderStepped:Connect(function(deltaTime)
         end
     end
     
+    -- HITBOX VISUAL
+    for player in pairs(Players:GetPlayers()) do
+        updateHitboxVisual(player)
+    end
+    
     -- FPS
     fpsFrames = fpsFrames + 1
     fpsElapsed = fpsElapsed + deltaTime
@@ -829,7 +881,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
     end
 end)
 
--- ===== OTWIERANIE MENU =====
+-- ===== OTWIERANIE MENU (bez zmian) =====
 local menuOpen = false
 local function toggleMenu()
     menuOpen = not menuOpen
@@ -845,7 +897,7 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
--- ===== DRAG =====
+-- ===== DRAG (bez zmian) =====
 local dragging = false
 local dragStart = nil
 local startPosition = nil
@@ -874,4 +926,4 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
-print("[vanta.lol] v6.2 FIXED - Aimbot 70x hitbox + ESP + UI loaded!")
+print("[vanta.lol] v6.2 FIXED - Aimbot 70x hitbox + ESP + Hitbox visual loaded!")

@@ -1,18 +1,19 @@
 --[[
-    vanta.lol v6.1 - interfejs i funkcje
-    
+    vanta.lol v6.1 - interface and configuration panel
+    Black interface with colored outlines, screen overlays, and user settings.
 
-    Zawartość:
-      * RightShift - otwiera i zamyka menu oraz odblokowuje kursor
-      * Przesuwane okno i sześć zakładek
-      * Przełączniki, suwaki, listy wyboru i motywy kolorystyczne
-      * Etykieta ekranowa: watermark / FPS / zegar
-      * Zapis, wczytywanie i reset konfiguracji (gdy executor udostępnia API plików)
+    Included interface features:
+      * RightShift opens/closes the menu and unlocks/restores the mouse cursor.
+      * A draggable window with six independently scrollable tabs.
+      * Toggles, numeric sliders, cycling dropdowns, and accent-color themes.
+      * Optional watermark, FPS counter, and local clock overlay.
+      * Save, load, and reset configuration when the executor provides file APIs.
+      * Smooth page transitions, adjustable menu scale, compact layout, and background opacity.
 
-    Wszystkie opcje są domyślnie wyłączone; można je zmieniać w menu.
-    Interfejs ma czarne tło, a obramowania zachowują kolor wybranego akcentu.
-    Opcja Hitbox rysuje lokalną wizualizację i nie zmienia fizyki postaci na serwerze.
-    Ten nagłówek opisuje działanie kodu; nie zmienia jego logiki.
+    All gameplay-related switches start disabled and can be changed from the menu.
+    The interface uses a black background while retaining the selected accent color on outlines.
+    The hitbox option is a local visual adornment; it does not change server-side character physics.
+    This header documents the script and does not change its runtime behavior.
 ]]
 
 local Players = game:GetService("Players")
@@ -25,15 +26,14 @@ local Camera = workspace.CurrentCamera
 
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
-    warn("[vanta.lol] Nie znaleziono LocalPlayer.")
+    warn("[vanta.lol] LocalPlayer is unavailable.")
     return
 end
 
 local GUI_NAME = "VantaLolUI_v61"
 local CONFIG_FILE = "vanta.lol_config.json"
 
--- Usuwa starszą kopię menu, aby ponowne uruchomienie nie tworzyło kolejnych okien.
--- Usuwa poprzednią kopię menu z wybranego kontenera, aby kolejne uruchomienie nie tworzyło duplikatów.
+-- Removes an older copy of the menu so repeated execution does not create duplicate windows.
 local function safeDestroyPrevious(parent)
     if not parent then return end
     local ok, oldGui = pcall(function()
@@ -44,7 +44,7 @@ local function safeDestroyPrevious(parent)
     end
 end
 
--- Pobiera PlayerGui lokalnego gracza; używane jako awaryjne miejsce na interfejs.
+-- Retrieves the local player's PlayerGui as a fallback parent for the interface.
 local function getPlayerGui()
     local ok, playerGui = pcall(function()
         return LocalPlayer:WaitForChild("PlayerGui", 5)
@@ -53,7 +53,7 @@ local function getPlayerGui()
     return nil
 end
 
--- Wybiera kontener GUI w tej samej kolejności co działający test interfejsu.
+-- Selects a GUI container using the same fallback order as the working UI diagnostic.
 local GuiParent
 local GuiParentName = "Unknown"
 
@@ -84,7 +84,7 @@ if not GuiParent then
 end
 
 if not GuiParent then
-    warn("[vanta.lol] Nie znaleziono kontenera dla interfejsu GUI.")
+    warn("[vanta.lol] Could not find a GUI parent.")
     return
 end
 
@@ -103,12 +103,12 @@ local parentOk, parentError = pcall(function()
 end)
 if not parentOk or ScreenGui.Parent ~= GuiParent then
     pcall(function() ScreenGui:Destroy() end)
-    warn("[vanta.lol] Nie udało się przypisać ScreenGui: " .. tostring(parentError))
+    warn("[vanta.lol] Could not parent ScreenGui: " .. tostring(parentError))
     return
 end
 
 local Defaults = {
-    -- Ustawienia asystenta celowania
+    -- Aim-assist settings
     Aimbot = false,
     AimbotFOV = 180,
     AimbotSmoothness = 0.25,
@@ -117,7 +117,7 @@ local Defaults = {
     VisibleCheck = true,
     ShowFOV = false,
 
-    -- Ustawienia nakładki informacyjnej graczy
+    -- Player overlay settings
     ESP = false,
     ESPBox = true,
     ESPLines = false,
@@ -126,11 +126,11 @@ local Defaults = {
     ESPColor = Color3.fromRGB(255, 70, 70),
     ESPTeamColor = Color3.fromRGB(70, 220, 130),
 
-    -- Ustawienia lokalnej wizualizacji hitboxów
+    -- Local hitbox-visualizer settings
     Hitbox = false,
     HitboxSize = 3,
 
-    -- Ustawienia interfejsu i etykiety ekranowej
+    -- Interface and screen-overlay settings
     ShowWatermark = false,
     ShowFPS = false,
     ShowClock = false,
@@ -145,6 +145,24 @@ local Defaults = {
 local Settings = {}
 for key, value in pairs(Defaults) do
     Settings[key] = value
+end
+
+-- Tracks the black menu surfaces that should respond to the Background Transparency setting.
+local OpacityTargets = {}
+local function registerOpacityTarget(instance)
+    table.insert(OpacityTargets, instance)
+end
+
+local function applyBackgroundOpacity()
+    local opacity = math.clamp(tonumber(Settings.BackgroundOpacity) or 0, 0, 0.30)
+    for index = #OpacityTargets, 1, -1 do
+        local target = OpacityTargets[index]
+        if target and target.Parent then
+            target.BackgroundTransparency = opacity
+        else
+            table.remove(OpacityTargets, index)
+        end
+    end
 end
 
 local ThemeColors = {
@@ -170,17 +188,17 @@ local Colors = {
 
 local AccentUpdaters = {}
 local Refreshers = {}
--- Rejestruje element interfejsu, którego kolor ma zmieniać się wraz z motywem.
+-- Registers a UI element whose accent color must update when the selected theme changes.
 local function registerAccentUpdater(callback)
     table.insert(AccentUpdaters, callback)
 end
 
--- Rejestruje funkcję odświeżającą kontrolkę po wczytaniu lub zresetowaniu konfiguracji.
+-- Registers a callback that refreshes a control after a config is loaded or reset.
 local function registerRefresher(callback)
     table.insert(Refreshers, callback)
 end
 
--- Zaokrągla rogi wskazanego elementu GUI.
+-- Adds rounded corners to the supplied GUI object.
 local function round(instance, radius)
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, radius or 8)
@@ -188,7 +206,7 @@ local function round(instance, radius)
     return corner
 end
 
--- Dodaje obramowanie UIStroke do wskazanego elementu.
+-- Adds a UIStroke outline to the supplied GUI object.
 local function stroke(instance, color, thickness, transparency)
     local outline = Instance.new("UIStroke")
     outline.Color = color or Colors.Accent
@@ -198,7 +216,7 @@ local function stroke(instance, color, thickness, transparency)
     return outline
 end
 
--- Tworzy etykietę tekstową z podanymi parametrami wyglądu i położenia.
+-- Creates a text label with the requested text, geometry, font, color, and alignment.
 local function makeLabel(parent, text, position, size, textSize, color, font, align)
     local label = Instance.new("TextLabel")
     label.BackgroundTransparency = 1
@@ -214,7 +232,7 @@ local function makeLabel(parent, text, position, size, textSize, color, font, al
     return label
 end
 
--- Tworzenie głównego okna menu
+-- Create the main menu window.
 local Main = Instance.new("Frame")
 Main.Name = "Main"
 Main.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -226,21 +244,32 @@ Main.BorderSizePixel = 0
 Main.Visible = false
 Main.Active = true
 Main.Parent = ScreenGui
+registerOpacityTarget(Main)
 round(Main, 12)
 local MainStroke = stroke(Main, Colors.Accent, 1.4, 0.18)
 local MainScale = Instance.new("UIScale")
 MainScale.Scale = Settings.UIScale
 MainScale.Parent = Main
 
-local MainGradient = Instance.new("UIGradient")
-MainGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0)),
-})
-MainGradient.Rotation = 90
-MainGradient.Parent = Main
+-- Applies compact sizing, global UI scale, and background transparency.
+-- Scale is applied after slider release so the slider does not move underneath the pointer.
+local function applyLayoutSettings(animate)
+    local targetSize = Settings.CompactMode and UDim2.fromOffset(560, 410) or UDim2.fromOffset(630, 450)
+    local targetScale = math.clamp(tonumber(Settings.UIScale) or 1, 0.80, 1.20)
+    local tweenInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
--- Tworzenie nagłówka menu
+    if animate then
+        TweenService:Create(Main, tweenInfo, {Size = targetSize}):Play()
+        TweenService:Create(MainScale, tweenInfo, {Scale = targetScale}):Play()
+    else
+        Main.Size = targetSize
+        MainScale.Scale = targetScale
+    end
+
+    applyBackgroundOpacity()
+end
+
+-- Create the menu header.
 local Header = Instance.new("Frame")
 Header.Name = "Header"
 Header.Active = true
@@ -248,6 +277,7 @@ Header.Size = UDim2.new(1, 0, 0, 56)
 Header.BackgroundColor3 = Colors.Panel
 Header.BorderSizePixel = 0
 Header.Parent = Main
+registerOpacityTarget(Header)
 round(Header, 12)
 local HeaderStroke = stroke(Header, Colors.Accent, 1, 0.72)
 registerAccentUpdater(function() HeaderStroke.Color = Colors.Accent end)
@@ -258,6 +288,7 @@ HeaderMask.Size = UDim2.new(1, 0, 0, 12)
 HeaderMask.BackgroundColor3 = Colors.Panel
 HeaderMask.BorderSizePixel = 0
 HeaderMask.Parent = Header
+registerOpacityTarget(HeaderMask)
 
 local AccentBar = Instance.new("Frame")
 AccentBar.Size = UDim2.new(1, 0, 0, 3)
@@ -290,13 +321,14 @@ Close.MouseLeave:Connect(function()
     TweenService:Create(Close, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(8, 8, 10)}):Play()
 end)
 
--- Tworzenie zakładek i stron menu
+-- Create the tab bar and its content pages.
 local TabBar = Instance.new("Frame")
 TabBar.Position = UDim2.fromOffset(0, 56)
 TabBar.Size = UDim2.new(1, 0, 0, 43)
 TabBar.BackgroundColor3 = Color3.fromRGB(4, 4, 5)
 TabBar.BorderSizePixel = 0
 TabBar.Parent = Main
+registerOpacityTarget(TabBar)
 local TabBarStroke = stroke(TabBar, Colors.Accent, 1, 0.78)
 registerAccentUpdater(function() TabBarStroke.Color = Colors.Accent end)
 
@@ -313,13 +345,14 @@ Content.Position = UDim2.fromOffset(12, 110)
 Content.Size = UDim2.new(1, -24, 1, -122)
 Content.BackgroundTransparency = 1
 Content.Parent = Main
+Content.ClipsDescendants = true
 
-local TabNames = {"AIMBOT", "ESP", "HITBOX", "OGÓLNE", "WYGLĄD", "CONFIG"}
+local TabNames = {"AIMBOT", "ESP", "HITBOX", "GENERAL", "STYLE", "CONFIG"}
 local TabButtons = {}
 local Pages = {}
 local activeTab = 1
 
--- Tworzy przewijaną stronę zawartości dla jednej zakładki menu.
+-- Creates a vertically scrollable content page for one menu tab.
 local function createPage(name)
     local page = Instance.new("ScrollingFrame")
     page.Name = name
@@ -328,6 +361,9 @@ local function createPage(name)
     page.BorderSizePixel = 0
     page.ScrollBarThickness = 3
     page.ScrollBarImageColor3 = Colors.Accent
+    page.ScrollBarImageTransparency = 0.12
+    page.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+    page.ScrollingEnabled = false -- The script supplies eased mouse-wheel scrolling below.
     page.CanvasSize = UDim2.new(0, 0, 0, 0)
     page.Visible = false
     page.Parent = Content
@@ -366,16 +402,55 @@ for i, name in ipairs(TabNames) do
     Pages[i] = createPage(name .. "Page")
 end
 
--- Aktywuje wybraną zakładkę, ukrywa pozostałe strony i przesuwa wskaźnik.
+-- Activates the selected tab, hides inactive pages, and animates the active-tab indicator.
+local tabPageTweens = {}
+local indicatorTween = nil
 local function selectTab(index)
+    if not Pages[index] then return end
+    local previousTab = activeTab
+    local direction = (index >= previousTab) and 1 or -1
     activeTab = index
+
     for i, button in ipairs(TabButtons) do
         button.TextColor3 = (i == index) and Colors.Accent or Colors.Muted
-        Pages[i].Visible = (i == index)
+        local page = Pages[i]
+        if tabPageTweens[i] then
+            tabPageTweens[i]:Cancel()
+            tabPageTweens[i] = nil
+        end
+
+        if i == index then
+            page.Visible = true
+            if Settings.SmoothTabs and previousTab ~= index then
+                page.Position = UDim2.fromOffset(direction * 18, 0)
+                local pageTween = TweenService:Create(
+                    page,
+                    TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                    {Position = UDim2.fromOffset(0, 0)}
+                )
+                tabPageTweens[i] = pageTween
+                pageTween:Play()
+            else
+                page.Position = UDim2.fromOffset(0, 0)
+            end
+        else
+            page.Visible = false
+            page.Position = UDim2.fromOffset(0, 0)
+        end
     end
+
     local target = UDim2.new((index - 1) / #TabNames, 8, 1, -3)
+    if indicatorTween then
+        indicatorTween:Cancel()
+        indicatorTween = nil
+    end
     if Settings.SmoothTabs then
-        TweenService:Create(TabIndicator, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = target}):Play()
+        indicatorTween = TweenService:Create(
+            TabIndicator,
+            TweenInfo.new(0.26, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            {Position = target}
+        )
+        indicatorTween:Play()
     else
         TabIndicator.Position = target
     end
@@ -387,7 +462,44 @@ for i, button in ipairs(TabButtons) do
     end)
 end
 
--- Etykieta informacyjna widoczna niezależnie od otwarcia menu.
+-- Smoothly scrolls the currently visible page when the mouse wheel is used over it.
+-- Native ScrollingFrame input is disabled above so wheel movement is handled by one eased tween.
+local pageScrollTweens = {}
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
+
+    local mousePosition = UserInputService:GetMouseLocation()
+    for _, page in ipairs(Pages) do
+        if page.Visible then
+            local pagePosition = page.AbsolutePosition
+            local pageSize = page.AbsoluteSize
+            local insidePage = mousePosition.X >= pagePosition.X
+                and mousePosition.X <= pagePosition.X + pageSize.X
+                and mousePosition.Y >= pagePosition.Y
+                and mousePosition.Y <= pagePosition.Y + pageSize.Y
+
+            if insidePage then
+                local maximumScroll = math.max(0, page.CanvasSize.Y.Offset - page.AbsoluteSize.Y)
+                local targetY = math.clamp(page.CanvasPosition.Y - (input.Position.Z * 92), 0, maximumScroll)
+
+                if pageScrollTweens[page] then
+                    pageScrollTweens[page]:Cancel()
+                end
+
+                local scrollTween = TweenService:Create(
+                    page,
+                    TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                    {CanvasPosition = Vector2.new(0, targetY)}
+                )
+                pageScrollTweens[page] = scrollTween
+                scrollTween:Play()
+                break
+            end
+        end
+    end
+end)
+
+-- Creates an information overlay that can remain visible while the menu is closed.
 local Overlay = Instance.new("TextLabel")
 Overlay.Name = "VantaLolOverlay"
 Overlay.AnchorPoint = Vector2.new(0, 0)
@@ -410,7 +522,7 @@ local OverlayPadding = Instance.new("UIPadding")
 OverlayPadding.PaddingLeft = UDim.new(0, 10)
 OverlayPadding.Parent = Overlay
 
--- Ustawia położenie małej etykiety informacyjnej w jednym z rogów ekranu.
+-- Places the information overlay in the selected screen corner.
 local function updateOverlayPosition()
     local position = Settings.OverlayPosition
     if position == "TopRight" then
@@ -428,7 +540,7 @@ local function updateOverlayPosition()
     end
 end
 
--- Składa tekst watermarka, licznika FPS i zegara oraz odświeża jego rozmiar.
+-- Builds the watermark/FPS/clock text and adjusts the overlay width to fit its contents.
 local function updateOverlay(fps)
     local parts = {}
     if Settings.ShowWatermark then table.insert(parts, "vanta.lol") end
@@ -441,14 +553,15 @@ local function updateOverlay(fps)
     updateOverlayPosition()
 end
 
--- Funkcje pomocnicze do budowania interfejsu
--- Tworzy wiersz ustawienia z tytułem i krótkim opisem.
+-- Reusable helpers for constructing interface controls.
+-- Creates a bordered settings row with a title and a concise explanation.
 local function createRow(parent, title, description, height)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, -4, 0, height or 58)
     row.BackgroundColor3 = Colors.Panel
     row.BorderSizePixel = 0
     row.Parent = parent
+    registerOpacityTarget(row)
     round(row, 8)
     local rowStroke = stroke(row, Colors.Accent, 1, 0.78)
     registerAccentUpdater(function() rowStroke.Color = Colors.Accent end)
@@ -460,14 +573,14 @@ local function createRow(parent, title, description, height)
     return row
 end
 
--- Dodaje nagłówek sekcji na stronie menu.
+-- Adds a themed section heading to a menu page.
 local function createSection(parent, text)
     local section = makeLabel(parent, text, UDim2.new(0, 4, 0, 0), UDim2.new(1, -8, 0, 22), 10, Colors.Accent, Enum.Font.GothamBold)
     registerAccentUpdater(function() section.TextColor3 = Colors.Accent end)
     return section
 end
 
--- Tworzy przełącznik ON/OFF i zapisuje zmianę w tabeli Settings.
+-- Creates an ON/OFF toggle and stores the selected state in the Settings table.
 local function createToggle(parent, title, description, settingKey)
     local row = createRow(parent, title, description, 58)
     local track = Instance.new("TextButton")
@@ -498,6 +611,9 @@ local function createToggle(parent, title, description, settingKey)
         Settings[settingKey] = not Settings[settingKey]
         refresh()
         updateOverlay(0)
+        if settingKey == "CompactMode" then
+            applyLayoutSettings(true)
+        end
     end)
     registerAccentUpdater(refresh)
     registerRefresher(refresh)
@@ -505,6 +621,7 @@ local function createToggle(parent, title, description, settingKey)
 end
 
 local draggingSlider = nil
+local draggingSliderSetting = nil
 UserInputService.InputChanged:Connect(function(input)
     if draggingSlider and input.UserInputType == Enum.UserInputType.MouseMovement then
         draggingSlider(input.Position.X)
@@ -513,10 +630,14 @@ end)
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         draggingSlider = nil
+        if draggingSliderSetting == "UIScale" then
+            applyLayoutSettings(true)
+        end
+        draggingSliderSetting = nil
     end
 end)
 
--- Tworzy suwak wartości z zakresem, krokiem i etykietą aktualnej wartości.
+-- Creates a numeric slider with minimum/maximum bounds, step size, and a live value label.
 local function createSlider(parent, title, description, settingKey, minValue, maxValue, step)
     local row = createRow(parent, title, description, 64)
     local valueLabel = makeLabel(row, "", UDim2.new(1, -165, 0, 7), UDim2.fromOffset(145, 16), 10, Colors.Accent, Enum.Font.GothamBold, Enum.TextXAlignment.Right)
@@ -566,18 +687,23 @@ local function createSlider(parent, title, description, settingKey, minValue, ma
         value = math.clamp(value, minValue, maxValue)
         Settings[settingKey] = tonumber(string.format("%." .. tostring(decimals) .. "f", value))
         refresh()
+        if settingKey == "BackgroundOpacity" then
+            applyBackgroundOpacity()
+        end
     end
 
     track.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             setFromX(input.Position.X)
             draggingSlider = setFromX
+            draggingSliderSetting = settingKey
         end
     end)
     knob.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             setFromX(input.Position.X)
             draggingSlider = setFromX
+            draggingSliderSetting = settingKey
         end
     end)
     refresh()
@@ -587,7 +713,7 @@ end
 
 local applyAccentTheme
 
--- Tworzy przycisk listy wyboru, który przełącza kolejne dostępne opcje.
+-- Creates a cycling dropdown button that advances through the supplied options.
 local function createDropdown(parent, title, description, settingKey, options)
     local row = createRow(parent, title, description, 58)
     local button = Instance.new("TextButton")
@@ -622,7 +748,7 @@ local function createDropdown(parent, title, description, settingKey, options)
     return row
 end
 
--- Tworzy próbkę koloru; kliknięcie zmienia barwę ustawienia.
+-- Creates a color swatch; clicking it advances the selected setting to another hue.
 local function createColorButton(parent, title, description, settingKey)
     local row = createRow(parent, title, description, 58)
     local swatch = Instance.new("TextButton")
@@ -648,8 +774,7 @@ local function createColorButton(parent, title, description, settingKey)
     return row
 end
 
--- Aktualizator motywu jest tworzony po zarejestrowaniu elementów zależnych od koloru akcentu.
--- Aktualizuje kolor akcentu we wszystkich elementach zarejestrowanych dla motywu.
+-- Updates the accent color on every UI element registered with the theme system.
 applyAccentTheme = function()
     Colors.Accent = ThemeColors[Settings.AccentTheme] or ThemeColors.Cyan
     MainStroke.Color = Colors.Accent
@@ -663,7 +788,7 @@ end
 
 local applyAllSettings
 
--- Tworzy przycisk wykonujący przekazaną akcję, np. zapis lub wczytanie konfiguracji.
+-- Creates an action button, for example, to save, load, or reset the configuration.
 local function createActionButton(parent, title, description, buttonText, callback, buttonColor)
     local row = createRow(parent, title, description, 60)
     local button = Instance.new("TextButton")
@@ -683,52 +808,52 @@ local function createActionButton(parent, title, description, buttonText, callba
     return row
 end
 
--- Budowanie zawartości poszczególnych zakładek
--- Zakładka asystenta celowania
-createSection(Pages[1], "ASYSTENT CELOWANIA")
-createToggle(Pages[1], "Aimbot", "Płynnie kieruje kamerę w stronę najbliższego celu spełniającego warunki.", "Aimbot")
-createSlider(Pages[1], "Promień FOV", "Maksymalna odległość celu od środka ekranu, podana w pikselach.", "AimbotFOV", 10, 360, 5)
-createSlider(Pages[1], "Płynność", "Niższa wartość oznacza łagodniejszy, wolniejszy ruch kamery.", "AimbotSmoothness", 0.05, 1.00, 0.05)
-createDropdown(Pages[1], "Część celu", "Część postaci używana jako punkt odniesienia kamery.", "AimbotPart", {"Head", "HumanoidRootPart", "UpperTorso", "Torso"})
-createToggle(Pages[1], "Sprawdzanie drużyny", "Pomija graczy należących do Twojej drużyny.", "TeamCheck")
-createToggle(Pages[1], "Sprawdzanie widoczności", "Uwzględnia tylko cele, do których prowadzi niezasłonięty promień Raycast.", "VisibleCheck")
-createToggle(Pages[1], "Pokaż okrąg FOV", "Wyświetla na ekranie okrąg oznaczający ustawiony zasięg wyboru.", "ShowFOV")
+-- Build the controls for each menu tab.
+-- Aim-assist settings page.
+createSection(Pages[1], "AIM ASSIST")
+createToggle(Pages[1], "Aimbot", "Enables the camera-assist routine. When active, the script evaluates eligible player characters and selects a candidate using the configured filters.", "Aimbot")
+createSlider(Pages[1], "FOV Radius", "Sets the maximum on-screen pixel distance from the center of the viewport used by the target-selection routine.", "AimbotFOV", 10, 360, 5)
+createSlider(Pages[1], "Smoothness", "Controls camera interpolation. Lower values apply smaller changes per frame; higher values converge toward the selected view more quickly.", "AimbotSmoothness", 0.05, 1.00, 0.05)
+createDropdown(Pages[1], "Target Part", "Selects the character body part used as the camera reference point. If the selected part is missing, the script tries a fallback part.", "AimbotPart", {"Head", "HumanoidRootPart", "UpperTorso", "Torso"})
+createToggle(Pages[1], "Team Check", "When enabled, characters assigned to the local player's team are excluded from target selection and from the corresponding team-filtered visuals.", "TeamCheck")
+createToggle(Pages[1], "Visibility Check", "Uses a raycast from the current camera to determine whether geometry blocks the selected character part. Blocked targets are rejected.", "VisibleCheck")
+createToggle(Pages[1], "Show FOV Circle", "Draws a circle centered on the screen. Its radius matches the FOV Radius slider and is only a visual guide.", "ShowFOV")
 
--- Zakładka nakładki informacyjnej graczy
-createSection(Pages[2], "PODGLĄD GRACZY (ESP)")
-createToggle(Pages[2], "ESP", "Włącza nakładkę informacyjną wyświetlaną przy postaciach.", "ESP")
-createToggle(Pages[2], "Ramka 2D", "Rysuje prostokątną ramkę wokół postaci widocznej na ekranie.", "ESPBox")
-createToggle(Pages[2], "Linie", "Rysuje linię od środka dolnej krawędzi ekranu do postaci.", "ESPLines")
-createToggle(Pages[2], "Odległość", "Pokazuje odległość od Twojej postaci w studach.", "ESPDistance")
-createToggle(Pages[2], "Nazwa gracza", "Wyświetla nazwę gracza nad jego postacią.", "ESPName")
-createColorButton(Pages[2], "Kolor przeciwnika", "Kliknij próbkę koloru, aby przełączać dostępne barwy.", "ESPColor")
-createColorButton(Pages[2], "Kolor drużyny", "Kolor używany dla członków drużyny, gdy sprawdzanie drużyny jest wyłączone.", "ESPTeamColor")
+-- Player overlay settings page.
+createSection(Pages[2], "PLAYER ESP")
+createToggle(Pages[2], "ESP Overlay", "Enables the on-screen player overlay. Individual boxes, lines, names, and distance labels can be controlled separately below.", "ESP")
+createToggle(Pages[2], "2D Box", "Draws a rectangular screen-space outline around a character that is currently projected inside the camera viewport.", "ESPBox")
+createToggle(Pages[2], "Snaplines", "Draws a line from the bottom-center of the screen to the character root position. The line is hidden when the overlay is unavailable.", "ESPLines")
+createToggle(Pages[2], "Distance", "Displays the approximate distance between the local character root and the target character root, measured in Roblox studs.", "ESPDistance")
+createToggle(Pages[2], "Player Name", "Displays the player's account name above the projected character box. The label is hidden when the character is off-screen.", "ESPName")
+createColorButton(Pages[2], "Non-Team Color", "Sets the outline color used for players who are not on the local player's team. Click the swatch to cycle its hue.", "ESPColor")
+createColorButton(Pages[2], "Team Color", "Sets the outline color used for teammates when team filtering is disabled. Click the swatch to cycle its hue.", "ESPTeamColor")
 
--- Zakładka wizualizacji hitboxów
-createSection(Pages[3], "WIZUALIZACJA HITBOXÓW")
-createToggle(Pages[3], "Podgląd hitboxa", "Rysuje lokalną ramkę 3D wokół głównej części postaci.", "Hitbox")
-createSlider(Pages[3], "Rozmiar podglądu", "Skala podglądu: 1 = normalny rozmiar, 5 = większa ramka.", "HitboxSize", 1, 5, 0.1)
-createRow(Pages[3], "Tylko lokalna wizualizacja", "To tylko podgląd na Twoim ekranie — nie zmienia hitboxów ani fizyki postaci na serwerze.", 58)
+-- Hitbox visualization settings page.
+createSection(Pages[3], "HITBOX VISUALIZER")
+createToggle(Pages[3], "Hitbox Overlay", "Displays a local 3D box adornment around the character root part. This is a visual overlay and does not resize server-side body parts or collision geometry.", "Hitbox")
+createSlider(Pages[3], "Visual Scale", "Scales only the displayed box: 1.0 matches the root part size; larger values expand the outline for easier viewing.", "HitboxSize", 1, 5, 0.1)
+createRow(Pages[3], "Client-Side Visualization Only", "This adornment is rendered locally on your screen. It does not modify character size, hitbox properties, collisions, or server physics.", 58)
 
--- Zakładka ustawień ogólnych i etykiety ekranowej
-createSection(Pages[4], "USTAWIENIA OGÓLNE")
-createToggle(Pages[4], "Pokaż znak wodny", "Wyświetla mały napis vanta.lol na ekranie.", "ShowWatermark")
-createToggle(Pages[4], "Pokaż licznik FPS", "Wyświetla przybliżoną liczbę klatek na sekundę (FPS).", "ShowFPS")
-createToggle(Pages[4], "Pokaż zegar", "Wyświetla lokalną godzinę z systemu.", "ShowClock")
-createDropdown(Pages[4], "Położenie etykiety", "Wybiera miejsce wyświetlania etykiety informacyjnej.", "OverlayPosition", {"TopLeft", "TopRight", "BottomLeft", "BottomRight"})
+-- General settings and screen-overlay page.
+createSection(Pages[4], "GENERAL SETTINGS")
+createToggle(Pages[4], "Show Watermark", "Adds the vanta.lol brand label to the optional information overlay. The overlay remains independent of the main menu visibility.", "ShowWatermark")
+createToggle(Pages[4], "Show FPS Counter", "Displays an approximate frames-per-second value. The script samples rendered frames over a short interval to smooth the displayed number.", "ShowFPS")
+createToggle(Pages[4], "Show Clock", "Displays the current local system time in hours, minutes, and seconds.", "ShowClock")
+createDropdown(Pages[4], "Overlay Position", "Chooses which screen corner contains the watermark, FPS counter, and clock overlay.", "OverlayPosition", {"TopLeft", "TopRight", "BottomLeft", "BottomRight"})
 
--- Zakładka wyglądu menu
-createSection(Pages[5], "WYGLĄD INTERFEJSU")
-createDropdown(Pages[5], "Kolor akcentu", "Przełącza dostępne kolory akcentu interfejsu.", "AccentTheme", {"Cyan", "Purple", "Red", "Green", "Orange"})
-createSlider(Pages[5], "Skala menu", "Zmienia skalę całego menu.", "UIScale", 0.80, 1.20, 0.05)
-createSlider(Pages[5], "Przezroczystość tła", "0 = tło nieprzezroczyste, 0,30 = bardziej przezroczyste.", "BackgroundOpacity", 0.00, 0.30, 0.01)
-createToggle(Pages[5], "Tryb kompaktowy", "Zmniejsza rozmiar okna menu.", "CompactMode")
-createToggle(Pages[5], "Płynna animacja zakładek", "Włącza animację wskaźnika aktywnej zakładki.", "SmoothTabs")
+-- Menu appearance and animation settings page.
+createSection(Pages[5], "INTERFACE APPEARANCE")
+createDropdown(Pages[5], "Accent Theme", "Changes the highlight color used by borders, active tabs, slider fills, section headers, and other themed interface elements.", "AccentTheme", {"Cyan", "Purple", "Red", "Green", "Orange"})
+createSlider(Pages[5], "Menu Scale", "Scales the complete menu, including the window, tabs, text, and controls. The new scale is applied when you release the slider.", "UIScale", 0.80, 1.20, 0.05)
+createSlider(Pages[5], "Background Transparency", "Controls the transparency of the black window and its main black panels. 0.00 is fully opaque; 0.30 is more transparent. Changes apply immediately.", "BackgroundOpacity", 0.00, 0.30, 0.01)
+createToggle(Pages[5], "Compact Mode", "Switches to a smaller 560 × 410 window. Turn it off to restore the standard 630 × 450 layout. The change is applied immediately.", "CompactMode")
+createToggle(Pages[5], "Smooth Tab Transitions", "Animates the active-tab indicator and slides the selected page into view. Disable this option for instant tab changes.", "SmoothTabs")
 
--- Zakładka konfiguracji
-local ConfigStatus = makeLabel(Pages[6], "Konfiguracja: gotowa", UDim2.new(0, 4, 0, 0), UDim2.new(1, -8, 0, 26), 10, Colors.Muted, Enum.Font.Gotham)
+-- Configuration and information page.
+local ConfigStatus = makeLabel(Pages[6], "Config: ready", UDim2.new(0, 4, 0, 0), UDim2.new(1, -8, 0, 26), 10, Colors.Muted, Enum.Font.Gotham)
 
--- Przygotowuje ustawienia do zapisu JSON; kolory Color3 zamienia na składowe RGB.
+-- Serializes current settings for JSON storage. Color3 values are converted to RGB tables because JSON cannot store Roblox Color3 values directly.
 local function serializeSettings()
     local output = {}
     for key, value in pairs(Settings) do
@@ -746,7 +871,7 @@ local function serializeSettings()
     return output
 end
 
--- Wczytuje rozpoznane wartości konfiguracji i ogranicza je do dozwolonych zakresów.
+-- Applies recognized values from a saved config, validates enum-like options, and clamps numeric settings to supported ranges.
 local function applyLoadedSettings(saved)
     for key, defaultValue in pairs(Defaults) do
         local value = saved[key]
@@ -777,9 +902,9 @@ local function applyLoadedSettings(saved)
     if not validParts[Settings.AimbotPart] then Settings.AimbotPart = "Head" end
 end
 
-createActionButton(Pages[6], "Zapisz konfigurację", "Zapisuje ustawienia asystenta, nakładek, wizualizacji i menu do lokalnego pliku JSON.", "ZAPISZ", function()
+createActionButton(Pages[6], "Save Configuration", "Writes the current menu settings, visual preferences, and overlay options to a local JSON file when the executor supports file access.", "SAVE", function()
     if type(writefile) ~= "function" then
-        ConfigStatus.Text = "Konfiguracja: ten executor nie udostępnia funkcji writefile()."
+        ConfigStatus.Text = "Config: this executor does not provide writefile()."
         ConfigStatus.TextColor3 = Colors.Red
         return
     end
@@ -792,16 +917,16 @@ createActionButton(Pages[6], "Zapisz konfigurację", "Zapisuje ustawienia asyste
         writefile(CONFIG_FILE, HttpService:JSONEncode(payload))
     end)
     if ok then
-        ConfigStatus.Text = "Konfiguracja: zapisano do pliku " .. CONFIG_FILE
+        ConfigStatus.Text = "Config: saved to " .. CONFIG_FILE
         ConfigStatus.TextColor3 = Colors.Green
     else
-        ConfigStatus.Text = "Nie udało się zapisać konfiguracji: " .. tostring(result)
+        ConfigStatus.Text = "Config save failed: " .. tostring(result)
         ConfigStatus.TextColor3 = Colors.Red
     end
 end)
-createActionButton(Pages[6], "Wczytaj konfigurację", "Wczytuje ustawienia zapisane wcześniej przez to menu.", "WCZYTAJ", function()
+createActionButton(Pages[6], "Load Configuration", "Reads the previously saved JSON file, validates its structure, restores recognized values, and refreshes the interface.", "LOAD", function()
     if type(readfile) ~= "function" then
-        ConfigStatus.Text = "Konfiguracja: ten executor nie udostępnia funkcji readfile()."
+        ConfigStatus.Text = "Config: this executor does not provide readfile()."
         ConfigStatus.TextColor3 = Colors.Red
         return
     end
@@ -809,38 +934,37 @@ createActionButton(Pages[6], "Wczytaj konfigurację", "Wczytuje ustawienia zapis
         local raw = readfile(CONFIG_FILE)
         local decoded = HttpService:JSONDecode(raw)
         if type(decoded) ~= "table" or type(decoded.settings) ~= "table" then
-            error("Nieprawidłowa struktura pliku konfiguracji")
+            error("Invalid configuration file structure")
         end
         applyLoadedSettings(decoded.settings)
         applyAllSettings()
     end)
     if ok then
-        ConfigStatus.Text = "Konfiguracja została wczytana."
+        ConfigStatus.Text = "Config: loaded successfully."
         ConfigStatus.TextColor3 = Colors.Green
     else
-        ConfigStatus.Text = "Nie udało się wczytać konfiguracji: " .. tostring(result)
+        ConfigStatus.Text = "Config load failed: " .. tostring(result)
         ConfigStatus.TextColor3 = Colors.Red
     end
 end)
-createActionButton(Pages[6], "Reset konfiguracji", "Przywraca ustawienia domyślne (wszystkie funkcje są wyłączone).", "RESETUJ", function()
+createActionButton(Pages[6], "Reset Configuration", "Restores the built-in default values. Optional gameplay and overlay switches return to their default disabled state.", "RESET", function()
     for key, value in pairs(Defaults) do
         Settings[key] = value
     end
     applyAllSettings()
-    ConfigStatus.Text = "Przywrócono ustawienia domyślne (bez zapisywania do pliku)."
+    ConfigStatus.Text = "Config: defaults restored (not written to disk)."
     ConfigStatus.TextColor3 = Colors.Green
 end, Colors.Off)
-createSection(Pages[6], "INFORMACJE")
-createRow(Pages[6], "vanta.lol v6.1", "RightShift otwiera i zamyka menu. Funkcje asystenta i ESP są domyślnie wyłączone.", 62)
-createRow(Pages[6], "Autorzy", "owned by maks and maciek", 48)
-createRow(Pages[6], "Motyw", "Czarne tło, obramowania w kolorze wybranego akcentu.", 48)
+createSection(Pages[6], "ABOUT")
+createRow(Pages[6], "vanta.lol v6.1", "Press RightShift to open or close the menu. Optional aim-assist and player-overlay switches start disabled.", 62)
+createRow(Pages[6], "Credits", "owned by maks and maciek", 48)
+createRow(Pages[6], "Config Footer", "Saved configuration files include the footer: owned by maks and maciek.", 48)
+createRow(Pages[6], "Theme", "Pure black panels with outlines and highlights using the selected accent color.", 48)
 
--- Zastosowanie ustawień po zarejestrowaniu funkcji odświeżających wszystkie kontrolki.
--- Nakłada aktualne ustawienia na wygląd menu i odświeża wszystkie kontrolki.
+-- Applies appearance and theme settings after all control refresh callbacks have been registered.
+-- Also refreshes the visible state of toggles, sliders, dropdowns, and the optional overlay.
 applyAllSettings = function()
-    MainScale.Scale = Settings.UIScale
-    Main.BackgroundTransparency = Settings.BackgroundOpacity
-    Main.Size = Settings.CompactMode and UDim2.fromOffset(560, 410) or UDim2.fromOffset(630, 450)
+    applyLayoutSettings(false)
     Colors.Accent = ThemeColors[Settings.AccentTheme] or ThemeColors.Cyan
     applyAccentTheme()
     for _, refresh in ipairs(Refreshers) do
@@ -850,11 +974,11 @@ applyAllSettings = function()
     selectTab(activeTab)
 end
 
--- Ustawienie początkowego wyglądu menu.
+-- Apply the initial menu appearance.
 applyAllSettings()
 selectTab(1)
 
--- Przesuwanie okna przez przeciąganie nagłówka.
+-- Allow the user to drag the window by holding the header.
 local draggingWindow = false
 local dragStart = nil
 local startPosition = nil
@@ -880,13 +1004,13 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Obsługa kursora: zapamiętuje i przywraca stan myszy sprzed otwarcia menu.
+-- Cursor handling: save the mouse state before opening the menu and restore it when the menu closes.
 local menuOpen = false
 local previousMouseBehavior = nil
 local previousMouseIconEnabled = nil
 local cursorConnection = nil
 
--- Otwiera menu, zapamiętuje stan myszy i pokazuje kursor.
+-- Opens the menu, stores the current mouse state, and makes the cursor visible.
 local function openMenu()
     if menuOpen then return end
     menuOpen = true
@@ -908,7 +1032,7 @@ local function openMenu()
     end)
 end
 
--- Zamyka menu i przywraca poprzedni stan kursora oraz zachowania myszy.
+-- Closes the menu and restores the mouse cursor visibility and behavior saved before opening it.
 local function closeMenu()
     if not menuOpen then return end
     menuOpen = false
@@ -927,7 +1051,7 @@ local function closeMenu()
     previousMouseIconEnabled = nil
 end
 
--- Przełącza menu pomiędzy stanem otwartym i zamkniętym.
+-- Toggles the menu between its open and closed states.
 local function toggleMenu()
     if menuOpen then closeMenu() else openMenu() end
 end
@@ -939,8 +1063,8 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
--- Nakładki ekranowe, asystent celowania i lokalny podgląd hitboxów.
--- Są to lokalne elementy wizualne i obsługa kamery; skrypt nie zmienia właściwości postaci po stronie serwera.
+-- Player overlays, aim-assist camera handling, and the local hitbox visualizer.
+-- These operations are client-side visuals/camera behavior; they do not change server-side character properties.
 local PlayerOverlays = {}
 local HitboxAdornments = {}
 local aimCircle = Instance.new("Frame")
@@ -961,7 +1085,7 @@ aimCircleStroke.Transparency = 0.15
 aimCircleStroke.Parent = aimCircle
 registerAccentUpdater(function() aimCircleStroke.Color = Colors.Accent end)
 
--- Ukrywa wszystkie elementy nakładki przypisane do danego gracza.
+-- Hides every on-screen overlay element associated with the specified player.
 local function hideOverlay(overlay)
     if not overlay then return end
     overlay.Box.Visible = false
@@ -970,7 +1094,7 @@ local function hideOverlay(overlay)
     overlay.Line.Visible = false
 end
 
--- Usuwa obiekty nakładki danego gracza i zwalnia powiązane zasoby.
+-- Destroys the specified player's overlay objects and releases their associated resources.
 local function removePlayerOverlay(player)
     local overlay = PlayerOverlays[player]
     if overlay then
@@ -988,7 +1112,7 @@ local function removePlayerOverlay(player)
     end
 end
 
--- Przygotowuje lokalne elementy GUI używane przez nakładkę informacyjną.
+-- Creates the local GUI objects used to display one player's overlay information.
 local function createPlayerOverlay(player)
     if player == LocalPlayer or PlayerOverlays[player] then return end
 
@@ -1052,7 +1176,7 @@ local function createPlayerOverlay(player)
     }
 end
 
--- Wykonuje test Raycast i zwraca informację, czy wskazana część postaci jest widoczna.
+-- Performs a raycast from the current camera and reports whether the requested character part is unobstructed.
 local function isTargetVisible(targetPart, character)
     if not Settings.VisibleCheck then return true end
     local camera = workspace.CurrentCamera
@@ -1068,7 +1192,7 @@ local function isTargetVisible(targetPart, character)
     return result == nil or result.Instance:IsDescendantOf(character)
 end
 
--- Wybiera część postaci wskazaną w ustawieniach; w razie braku szuka części zapasowej.
+-- Returns the configured character part, falling back to Head and then HumanoidRootPart if the requested part is unavailable.
 local function getTargetPart(character)
     local requested = character:FindFirstChild(Settings.AimbotPart)
     if requested and requested:IsA("BasePart") then return requested end
@@ -1079,7 +1203,7 @@ local function getTargetPart(character)
     return nil
 end
 
--- Aktualizuje położenie i widoczność ramki, nazwy, dystansu oraz linii na ekranie.
+-- Updates the screen position, visibility, text, and color of the player box, name, distance label, and snapline.
 local function updatePlayerOverlay(player, overlay, camera)
     local character = player.Character
     local localCharacter = LocalPlayer.Character
@@ -1149,7 +1273,7 @@ local function updatePlayerOverlay(player, overlay, camera)
     end
 end
 
--- Aktualizuje lokalny podgląd 3D wokół HumanoidRootPart; nie zmienia fizycznego hitboxa.
+-- Updates the local 3D adornment around HumanoidRootPart. This changes only the displayed outline, not the physical hitbox.
 local function updateHitboxVisual(player)
     local current = HitboxAdornments[player]
     if not Settings.Hitbox then
@@ -1192,7 +1316,7 @@ end
 Players.PlayerAdded:Connect(createPlayerOverlay)
 Players.PlayerRemoving:Connect(removePlayerOverlay)
 
--- Odświeża elementy wizualne i logikę funkcji w każdej klatce renderowania.
+-- Refreshes visual elements and the existing feature logic on each rendered frame.
 local function updateFeatures()
     local camera = workspace.CurrentCamera
     if not camera then return end
@@ -1240,7 +1364,7 @@ end
 
 local featureConnection = RunService.RenderStepped:Connect(updateFeatures)
 
--- Pomiar FPS i okresowe odświeżanie etykiety ekranowej.
+-- Samples rendered frames and periodically refreshes the information overlay.
 local fpsFrames = 0
 local fpsElapsed = 0
 local currentFPS = 0
@@ -1259,8 +1383,15 @@ ScreenGui.Destroying:Connect(function()
     if cursorConnection then cursorConnection:Disconnect() end
     if renderConnection then renderConnection:Disconnect() end
     if featureConnection then featureConnection:Disconnect() end
+    if indicatorTween then indicatorTween:Cancel() end
+    for _, tween in pairs(tabPageTweens) do
+        pcall(function() tween:Cancel() end)
+    end
+    for _, tween in pairs(pageScrollTweens) do
+        pcall(function() tween:Cancel() end)
+    end
 end)
 
-print("[vanta.lol] Wersja 6.1 załadowana. Kontener GUI: " .. GuiParentName .. ". Naciśnij RightShift, aby otworzyć menu.")
+print("[vanta.lol] Version 6.1 loaded. GUI parent: " .. GuiParentName .. ". Press RightShift to open the menu.")
 
 -- owned by maks and maciek

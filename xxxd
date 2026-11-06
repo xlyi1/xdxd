@@ -1193,3 +1193,233 @@ local function updateLineSegment(line, startPoint, endPoint, color)
         return
     end
 
+    line.AnchorPoint = Vector2.new(0.5, 0.5)
+    line.Position = UDim2.fromOffset(
+        (startPoint.X + endPoint.X) * 0.5,
+        (startPoint.Y + endPoint.Y) * 0.5
+    )
+    line.Size = UDim2.fromOffset(length, 2)
+    line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+    line.BackgroundColor3 = color
+    line.Visible = true
+end
+
+local function updateTargetOverlay(model, overlay, camera)
+    local humanoid, root = getModelParts(model)
+    if not Settings.ESP or menuOpen or isLivePlayerCharacter(model) or not humanoid or not root then
+        hideOverlay(overlay)
+        return
+    end
+
+    local minX, minY, maxX, maxY = getScreenBounds(model, camera)
+    if not minX then hideOverlay(overlay); return end
+
+    local color = getModelColor(model)
+    local width = math.max(maxX - minX, 10)
+    local height = math.max(maxY - minY, 14)
+    local centerX = (minX + maxX) * 0.5
+    local centerY = (minY + maxY) * 0.5
+    local bottomY = maxY
+
+    overlay.Box.Visible = Settings.ESPBox
+    if Settings.ESPBox then
+        overlay.Box.Position = UDim2.fromOffset(minX, minY)
+        overlay.Box.Size = UDim2.fromOffset(width, height)
+        overlay.BoxStroke.Color = color
+    end
+
+    overlay.Name.Visible = Settings.ESPName
+    if Settings.ESPName then
+        overlay.Name.Position = UDim2.fromOffset(centerX - 95, minY - 20)
+        overlay.Name.Text = model.Name
+    end
+
+    overlay.Distance.Visible = Settings.ESPDistance
+    if Settings.ESPDistance then
+        local localRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if localRoot then
+            local distance = math.floor((root.Position - localRoot.Position).Magnitude + 0.5)
+            overlay.Distance.Position = UDim2.fromOffset(centerX - 95, bottomY + 2)
+            overlay.Distance.Text = tostring(distance) .. " studów"
+        else
+            overlay.Distance.Visible = false
+        end
+    end
+
+    if Settings.ESPLines then
+        local viewport = camera.ViewportSize
+        local rootPoint, onScreen = camera:WorldToViewportPoint(root.Position)
+        if onScreen and rootPoint.Z > 0
+            and rootPoint.X >= 0 and rootPoint.X <= viewport.X
+            and rootPoint.Y >= 0 and rootPoint.Y <= viewport.Y then
+            local startPoint = Vector2.new(viewport.X * 0.5, viewport.Y - 2)
+            local endPoint = Vector2.new(rootPoint.X, rootPoint.Y)
+            updateLineSegment(overlay.Line, startPoint, endPoint, color)
+        else
+            overlay.Line.Visible = false
+        end
+    else
+        overlay.Line.Visible = false
+    end
+end
+
+local function updateHitboxVisual(model)
+    local current = HitboxAdornments[model]
+    if not Settings.Hitbox or menuOpen or isLivePlayerCharacter(model) then
+        if current then current:Destroy(); HitboxAdornments[model] = nil end
+        return
+    end
+    local humanoid, root = getModelParts(model)
+    if not humanoid or not root then
+        if current then current:Destroy(); HitboxAdornments[model] = nil end
+        return
+    end
+    if not current or current.Adornee ~= root then
+        if current then current:Destroy() end
+        current = Instance.new("BoxHandleAdornment")
+        current.Name = "VantaTrainingHitboxVisual"
+        current.Adornee = root
+        current.AlwaysOnTop = false
+        current.ZIndex = 5
+        current.Transparency = 0.22
+        current.Color3 = getModelColor(model)
+        current.CFrame = CFrame.new()
+        current.Parent = root
+        HitboxAdornments[model] = current
+    end
+    -- Ustawiamy skalę ramki bez zmieniania rozmiaru rzeczywistej części postaci.
+    current.Size = root.Size * math.clamp(Settings.HitboxSize, 1, 6)
+    current.Color3 = getModelColor(model)
+end
+
+local function listTrainingTargets()
+    local result = {}
+    for _, child in ipairs(TargetFolder:GetChildren()) do
+        if child:IsA("Model") then
+            local humanoid, root = getModelParts(child)
+            if humanoid and root and not isLivePlayerCharacter(child) then
+                table.insert(result, child)
+                if not TargetOverlays[child] then makeTargetOverlay(child) end
+            end
+        end
+    end
+    for model in pairs(TargetOverlays) do
+        if not model.Parent or not model:IsDescendantOf(TargetFolder) then removeTarget(model) end
+    end
+    return result
+end
+
+local function validateTarget(model, camera, center, maxDistance)
+    if not model or not model:IsDescendantOf(TargetFolder) or isLivePlayerCharacter(model) then return nil end
+    if Settings.TeamCheck and isTrainingAlly(model) then return nil end
+    local humanoid, root = getModelParts(model)
+    local targetPart = getModelTargetPart(model)
+    if not humanoid or not root or not targetPart then return nil end
+    local screenPoint, onScreen = camera:WorldToViewportPoint(targetPart.Position)
+    if not onScreen or screenPoint.Z <= 0 then return nil end
+    local screenDistance = (Vector2.new(screenPoint.X, screenPoint.Y) - center).Magnitude
+    if screenDistance > maxDistance then return nil end
+    if not isTargetVisible(targetPart, model, camera) then return nil end
+    return targetPart, screenDistance
+end
+
+local function chooseTrainingTarget(camera)
+    local viewport = camera.ViewportSize
+    local center = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
+    local maxDistance = Settings.AimbotFOV
+
+    -- Zachowaj obecny cel, dopóki nadal jest poprawny; ogranicza to przeskakiwanie między modelami.
+    if currentTarget then
+        local retainedPart = validateTarget(currentTarget, camera, center, maxDistance * 1.15)
+        if retainedPart then return currentTarget, retainedPart end
+        currentTarget = nil
+    end
+
+    local bestModel, bestPart, bestDistance = nil, nil, maxDistance
+    for _, model in ipairs(listTrainingTargets()) do
+        local part, distance = validateTarget(model, camera, center, maxDistance)
+        if part and distance < bestDistance then
+            bestModel, bestPart, bestDistance = model, part, distance
+        end
+    end
+    currentTarget = bestModel
+    return bestModel, bestPart
+end
+
+local function updateVisuals()
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+    local viewport = camera.ViewportSize
+    aimCircle.Size = UDim2.fromOffset(Settings.AimbotFOV * 2, Settings.AimbotFOV * 2)
+    aimCircle.Position = UDim2.fromOffset(viewport.X * 0.5, viewport.Y * 0.5)
+    aimCircle.Visible = Settings.ShowFOV and Settings.Aimbot and aimHeld and not menuOpen
+
+    local targets = listTrainingTargets()
+    for _, model in ipairs(targets) do
+        local overlay = TargetOverlays[model]
+        if overlay then updateTargetOverlay(model, overlay, camera) end
+        updateHitboxVisual(model)
+    end
+end
+
+-- Asystent jest aktywny tylko podczas trzymania wybranego klawisza.
+-- BindToRenderStep uruchamia go po aktualizacji kamery Roblox, co ogranicza drgania.
+local AIM_BIND_NAME = "VantaLolTrainingAimAssist"
+RunService:BindToRenderStep(AIM_BIND_NAME, Enum.RenderPriority.Camera.Value + 1, function(deltaTime)
+    if not Settings.Aimbot or not aimHeld or menuOpen then
+        currentTarget = nil
+        return
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera or camera.CameraType == Enum.CameraType.Scriptable then return end
+
+    local targetModel, targetPart = chooseTrainingTarget(camera)
+    if not targetModel or not targetPart or isLivePlayerCharacter(targetModel) then return end
+
+    local cameraPosition = camera.CFrame.Position
+    local direction = targetPart.Position - cameraPosition
+    if direction.Magnitude < 0.001 then return end
+
+    -- Stały wektor góry usuwa drobne zmiany przechyłu kamery przy śledzeniu celu.
+    local desired = CFrame.lookAt(cameraPosition, targetPart.Position, Vector3.yAxis)
+    local frameTime = math.clamp(deltaTime, 1 / 240, 1 / 20)
+    local response = 3 + (math.clamp(Settings.AimbotSmoothness, 0.05, 1) * 16)
+    local alpha = 1 - math.exp(-response * frameTime)
+
+    -- Nie zapisuj prawie identycznego CFrame: ogranicza to mikrodrgnięcia obrazu.
+    local lookDot = math.clamp(camera.CFrame.LookVector:Dot(desired.LookVector), -1, 1)
+    if lookDot < 0.999995 then
+        camera.CFrame = camera.CFrame:Lerp(desired, alpha)
+    end
+end)
+
+local featureConnection = RunService.RenderStepped:Connect(updateVisuals)
+
+-- FPS sampling and overlay refresh.
+local fpsFrames = 0
+local fpsElapsed = 0
+local currentFPS = 0
+local renderConnection = RunService.RenderStepped:Connect(function(deltaTime)
+    fpsFrames = fpsFrames + 1
+    fpsElapsed = fpsElapsed + deltaTime
+    if fpsElapsed >= 0.5 then
+        currentFPS = math.floor(fpsFrames / math.max(fpsElapsed, 0.001) + 0.5)
+        fpsFrames = 0
+        fpsElapsed = 0
+        updateOverlay(currentFPS)
+    end
+end)
+
+ScreenGui.Destroying:Connect(function()
+    if cursorConnection then cursorConnection:Disconnect() end
+    if renderConnection then renderConnection:Disconnect() end
+    if featureConnection then featureConnection:Disconnect() end
+    pcall(function() RunService:UnbindFromRenderStep(AIM_BIND_NAME) end)
+    for model in pairs(TargetOverlays) do removeTarget(model) end
+end)
+
+print("[vanta.lol] v6.3 załadowany. Kontener GUI: " .. GuiParentName .. ". RightShift otwiera menu.")
+print("[vanta.lol] Cele treningowe umieszczaj w Workspace/VantaTargets.")
+print("[vanta.lol] Postacie prawdziwych graczy są automatycznie pomijane.")
+-- owned by maks and maciek

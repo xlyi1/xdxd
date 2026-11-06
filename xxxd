@@ -1215,3 +1215,4 @@ ScreenGui.Destroying:Connect(function()
 end)
 
 print("[vanta.lol] v6.1 loaded. GUI parent: " .. GuiParentName .. ". Press RightShift.")
+

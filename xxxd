@@ -1063,146 +1063,56 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
--- ============================================
--- POPRAWIONA LOGIKA AIMBOTA, HITBOXÓW I ESP LINES
--- ============================================
+-- Player overlays, aim-assist camera handling, and the local hitbox visualizer.
+-- These operations are client-side visuals/camera behavior; they do not change server-side character properties.
+local PlayerOverlays = {}
+local HitboxAdornments = {}
+local aimCircle = Instance.new("Frame")
+aimCircle.Name = "AimFOVCircle"
+aimCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+aimCircle.BackgroundTransparency = 1
+aimCircle.BorderSizePixel = 0
+aimCircle.Visible = false
+aimCircle.ZIndex = 20
+aimCircle.Parent = ScreenGui
+local aimCircleCorner = Instance.new("UICorner")
+aimCircleCorner.CornerRadius = UDim.new(1, 0)
+aimCircleCorner.Parent = aimCircle
+local aimCircleStroke = Instance.new("UIStroke")
+aimCircleStroke.Color = Colors.Accent
+aimCircleStroke.Thickness = 1.5
+aimCircleStroke.Transparency = 0.15
+aimCircleStroke.Parent = aimCircle
+registerAccentUpdater(function() aimCircleStroke.Color = Colors.Accent end)
 
--- Zmienne do aimbota
-local aimHeld = false
-local currentTarget = nil
-
--- Funkcja sprawdzająca czy gracz jest wrogiem
-local function isEnemy(player)
-    if not Settings.TeamCheck then return true end
-    if not LocalPlayer.Team or not player.Team then return true end
-    return LocalPlayer.Team ~= player.Team
+-- Hides every on-screen overlay element associated with the specified player.
+local function hideOverlay(overlay)
+    if not overlay then return end
+    overlay.Box.Visible = false
+    overlay.Name.Visible = false
+    overlay.Distance.Visible = false
+    overlay.Line.Visible = false
 end
 
--- Pobieranie części ciała gracza
-local function getPlayerPart(player)
-    local character = player.Character
-    if not character then return nil, nil end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then return nil, nil end
-    
-    local part = character:FindFirstChild(Settings.AimbotPart)
-    if not part or not part:IsA("BasePart") then
-        part = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
-    end
-    
-    return part, humanoid
-end
-
--- Sprawdzanie widoczności celu
-local function isVisible(targetPart)
-    if not Settings.VisibleCheck then return true end
-    
-    local camera = workspace.CurrentCamera
-    if not camera then return false end
-    
-    local origin = camera.CFrame.Position
-    local direction = targetPart.Position - origin
-    
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {LocalPlayer.Character, camera}
-    
-    local result = workspace:Raycast(origin, direction, params)
-    return result == nil or result.Instance:IsDescendantOf(targetPart.Parent)
-end
-
--- Wybór najlepszego celu dla aimbota
-local function getClosestTarget()
-    local camera = workspace.CurrentCamera
-    if not camera then return nil, nil end
-    
-    local viewport = camera.ViewportSize
-    local center = Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
-    local bestDistance = Settings.AimbotFOV
-    local bestTarget = nil
-    local bestPart = nil
-    
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and isEnemy(player) then
-            local part, humanoid = getPlayerPart(player)
-            if part and humanoid then
-                local screenPoint, onScreen = camera:WorldToViewportPoint(part.Position)
-                if onScreen and screenPoint.Z > 0 then
-                    local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - center).Magnitude
-                    if distance < bestDistance and isVisible(part) then
-                        bestDistance = distance
-                        bestTarget = player
-                        bestPart = part
-                    end
-                end
+-- Destroys the specified player's overlay objects and releases their associated resources.
+local function removePlayerOverlay(player)
+    local overlay = PlayerOverlays[player]
+    if overlay then
+        for _, object in pairs(overlay) do
+            if typeof(object) == "Instance" then
+                pcall(function() object:Destroy() end)
             end
         end
+        PlayerOverlays[player] = nil
     end
-    
-    return bestTarget, bestPart
-end
-
--- Główna pętla aimbota z płynnością (bez trzęsienia)
-local function aimbotLoop(deltaTime)
-    if not Settings.Aimbot or not aimHeld or menuOpen then
-        currentTarget = nil
-        return
-    end
-    
-    local targetPlayer, targetPart = getClosestTarget()
-    if not targetPlayer or not targetPart then
-        currentTarget = nil
-        return
-    end
-    
-    currentTarget = targetPlayer
-    
-    local camera = workspace.CurrentCamera
-    if not camera or camera.CameraType == Enum.CameraType.Scriptable then return end
-    
-    local cameraPosition = camera.CFrame.Position
-    local direction = targetPart.Position - cameraPosition
-    if direction.Magnitude < 0.001 then return end
-    
-    -- Używamy stałego wektora góry żeby uniknąć trzęsienia kamery
-    local desired = CFrame.lookAt(cameraPosition, targetPart.Position, Vector3.yAxis)
-    local frameTime = math.clamp(deltaTime, 1 / 240, 1 / 20)
-    local response = 3 + (math.clamp(Settings.AimbotSmoothness, 0.05, 1) * 16)
-    local alpha = 1 - math.exp(-response * frameTime)
-    
-    -- Nie zmieniamy kamery jeśli cel jest już prawie wycentrowany (zapobiega trzęsieniu)
-    local lookDot = math.clamp(camera.CFrame.LookVector:Dot(desired.LookVector), -1, 1)
-    if lookDot < 0.999995 then
-        camera.CFrame = camera.CFrame:Lerp(desired, alpha)
+    local adornment = HitboxAdornments[player]
+    if adornment then
+        pcall(function() adornment:Destroy() end)
+        HitboxAdornments[player] = nil
     end
 end
 
--- BindToRenderStep dla aimbota
-RunService:BindToRenderStep("VantaLolAimbot", Enum.RenderPriority.Camera.Value + 1, aimbotLoop)
-
--- Input handling dla aimbota
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.RightShift and not UserInputService:GetFocusedTextBox() then
-        toggleMenu()
-    end
-    if input.KeyCode.Name == "Q" and not menuOpen then
-        aimHeld = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.KeyCode.Name == "Q" then
-        aimHeld = false
-    end
-end)
-
--- ============================================
--- ESP Z POPRAWIONYMI LINIAMI
--- ============================================
-
-local PlayerOverlays = {}
-
+-- Creates the local GUI objects used to display one player's overlay information.
 local function createPlayerOverlay(player)
     if player == LocalPlayer or PlayerOverlays[player] then return end
 
@@ -1248,13 +1158,11 @@ local function createPlayerOverlay(player)
     distanceLabel.ZIndex = 31
     distanceLabel.Parent = ScreenGui
 
-    -- POPRAWIONA LINIA - używamy Frame z rotacją
     local line = Instance.new("Frame")
     line.Name = "ESPLine_" .. tostring(player.UserId)
-    line.BackgroundColor3 = Settings.ESPColor
     line.BorderSizePixel = 0
-    line.AnchorPoint = Vector2.new(0.5, 0.5) -- Środek linii
-    line.Size = UDim2.fromOffset(0, 2)
+    line.AnchorPoint = Vector2.new(0, 0.5)
+    line.Size = UDim2.fromOffset(0, 1.5)
     line.Visible = false
     line.ZIndex = 29
     line.Parent = ScreenGui
@@ -1268,27 +1176,34 @@ local function createPlayerOverlay(player)
     }
 end
 
-local function hideOverlay(overlay)
-    if not overlay then return end
-    overlay.Box.Visible = false
-    overlay.Name.Visible = false
-    overlay.Distance.Visible = false
-    overlay.Line.Visible = false
+-- Performs a raycast from the current camera and reports whether the requested character part is unobstructed.
+local function isTargetVisible(targetPart, character)
+    if not Settings.VisibleCheck then return true end
+    local camera = workspace.CurrentCamera
+    if not camera then return false end
+    local origin = camera.CFrame.Position
+    local direction = targetPart.Position - origin
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local exclusions = {camera}
+    if LocalPlayer.Character then table.insert(exclusions, LocalPlayer.Character) end
+    params.FilterDescendantsInstances = exclusions
+    local result = workspace:Raycast(origin, direction, params)
+    return result == nil or result.Instance:IsDescendantOf(character)
 end
 
-local function removePlayerOverlay(player)
-    local overlay = PlayerOverlays[player]
-    if overlay then
-        for _, object in pairs(overlay) do
-            if typeof(object) == "Instance" then
-                pcall(function() object:Destroy() end)
-            end
-        end
-        PlayerOverlays[player] = nil
-    end
+-- Returns the configured character part, falling back to Head and then HumanoidRootPart if the requested part is unavailable.
+local function getTargetPart(character)
+    local requested = character:FindFirstChild(Settings.AimbotPart)
+    if requested and requested:IsA("BasePart") then return requested end
+    local head = character:FindFirstChild("Head")
+    if head and head:IsA("BasePart") then return head end
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if root and root:IsA("BasePart") then return root end
+    return nil
 end
 
--- POPRAWIONA FUNKCJA UPDATE ESP Z DZIAŁAJĄCYMI LINIAMI
+-- Updates the screen position, visibility, text, and color of the player box, name, distance label, and snapline.
 local function updatePlayerOverlay(player, overlay, camera)
     local character = player.Character
     local localCharacter = LocalPlayer.Character
@@ -1345,37 +1260,20 @@ local function updatePlayerOverlay(player, overlay, camera)
         end
     end
 
-    -- POPRAWIONE LINIE - teraz działają poprawnie
     overlay.Line.Visible = Settings.ESPLines
     if Settings.ESPLines then
         local viewport = camera.ViewportSize
-        local startPoint = Vector2.new(viewport.X / 2, viewport.Y) -- Dół ekranu
-        local endPoint = Vector2.new(rootScreen.X, rootScreen.Y) -- Pozycja gracza
-        
+        local startPoint = Vector2.new(viewport.X / 2, viewport.Y)
+        local endPoint = Vector2.new(rootScreen.X, rootScreen.Y)
         local delta = endPoint - startPoint
-        local length = delta.Magnitude
-        
-        if length > 2 then
-            overlay.Line.Visible = true
-            overlay.Line.Position = UDim2.fromOffset(
-                (startPoint.X + endPoint.X) / 2,
-                (startPoint.Y + endPoint.Y) / 2
-            )
-            overlay.Line.Size = UDim2.fromOffset(length, 2)
-            overlay.Line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
-            overlay.Line.BackgroundColor3 = color
-        else
-            overlay.Line.Visible = false
-        end
+        overlay.Line.Position = UDim2.fromOffset(startPoint.X, startPoint.Y)
+        overlay.Line.Size = UDim2.fromOffset(delta.Magnitude, 1.5)
+        overlay.Line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+        overlay.Line.BackgroundColor3 = color
     end
 end
 
--- ============================================
--- HITBOXY - POWIĘKSZANIE GŁÓW DO 20x
--- ============================================
-
-local HitboxAdornments = {}
-
+-- Updates the local 3D adornment around HumanoidRootPart. This changes only the displayed outline, not the physical hitbox.
 local function updateHitboxVisual(player)
     local current = HitboxAdornments[player]
     if not Settings.Hitbox then
@@ -1385,9 +1283,8 @@ local function updateHitboxVisual(player)
 
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
-    local head = character and character:FindFirstChild("Head")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    if not root or not head or not humanoid or humanoid.Health <= 0 then
+    if not root or not humanoid or humanoid.Health <= 0 then
         if current then current:Destroy(); HitboxAdornments[player] = nil end
         return
     end
@@ -1395,54 +1292,31 @@ local function updateHitboxVisual(player)
         if current then current:Destroy(); HitboxAdornments[player] = nil end
         return
     end
-    
-    -- Powiększamy głowę (nie root)
-    if not current or current.Adornee ~= head then
+    if not current or current.Adornee ~= root then
         if current then current:Destroy() end
         current = Instance.new("BoxHandleAdornment")
         current.Name = "VantaLolHitboxVisual"
-        current.Adornee = head
+        current.Adornee = root
         current.AlwaysOnTop = true
         current.ZIndex = 8
         current.Transparency = 0.55
         current.Color3 = Settings.ESPColor
         current.CFrame = CFrame.new()
-        current.Parent = head
+        current.Parent = root
         HitboxAdornments[player] = current
     end
-    
-    -- Powiększamy głowę do 20x (domyślnie 3, ale można ustawić do 20)
-    local scale = math.clamp(Settings.HitboxSize, 1, 20)
-    current.Size = head.Size * scale
+    local scale = 1 + ((Settings.HitboxSize - 1) * 0.1)
+    current.Size = root.Size * scale
     current.Color3 = Settings.ESPColor
 end
 
--- Tworzenie overlayów dla istniejących graczy
 for _, player in ipairs(Players:GetPlayers()) do
     createPlayerOverlay(player)
 end
 Players.PlayerAdded:Connect(createPlayerOverlay)
 Players.PlayerRemoving:Connect(removePlayerOverlay)
 
--- Główna pętla renderowania
-local aimCircle = Instance.new("Frame")
-aimCircle.Name = "AimFOVCircle"
-aimCircle.AnchorPoint = Vector2.new(0.5, 0.5)
-aimCircle.BackgroundTransparency = 1
-aimCircle.BorderSizePixel = 0
-aimCircle.Visible = false
-aimCircle.ZIndex = 20
-aimCircle.Parent = ScreenGui
-local aimCircleCorner = Instance.new("UICorner")
-aimCircleCorner.CornerRadius = UDim.new(1, 0)
-aimCircleCorner.Parent = aimCircle
-local aimCircleStroke = Instance.new("UIStroke")
-aimCircleStroke.Color = Colors.Accent
-aimCircleStroke.Thickness = 1.5
-aimCircleStroke.Transparency = 0.15
-aimCircleStroke.Parent = aimCircle
-registerAccentUpdater(function() aimCircleStroke.Color = Colors.Accent end)
-
+-- Refreshes visual elements and the existing feature logic on each rendered frame.
 local function updateFeatures()
     local camera = workspace.CurrentCamera
     if not camera then return end
@@ -1453,16 +1327,38 @@ local function updateFeatures()
     aimCircle.Position = UDim2.fromOffset(viewport.X / 2, viewport.Y / 2)
     aimCircle.Visible = Settings.ShowFOV and Settings.Aimbot and not menuOpen
 
-    -- ESP
+    if Settings.Aimbot and not menuOpen then
+        local closestPart = nil
+        local shortestDistance = Settings.AimbotFOV
+        local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local character = player.Character
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                local part = getTargetPart(character)
+                local sameTeam = LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team
+                if humanoid and humanoid.Health > 0 and part and not (Settings.TeamCheck and sameTeam) then
+                    local screen, onScreen = camera:WorldToViewportPoint(part.Position)
+                    if onScreen and screen.Z > 0 and isTargetVisible(part, character) then
+                        local screenDistance = (Vector2.new(screen.X, screen.Y) - center).Magnitude
+                        if screenDistance < shortestDistance then
+                            shortestDistance = screenDistance
+                            closestPart = part
+                        end
+                    end
+                end
+            end
+        end
+        if closestPart then
+            local desired = CFrame.lookAt(camera.CFrame.Position, closestPart.Position)
+            local alpha = math.clamp(Settings.AimbotSmoothness, 0.01, 1)
+            camera.CFrame = camera.CFrame:Lerp(desired, alpha)
+        end
+    end
+
     for player, overlay in pairs(PlayerOverlays) do
         updatePlayerOverlay(player, overlay, camera)
-    end
-    
-    -- Hitboxy
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            updateHitboxVisual(player)
-        end
+        updateHitboxVisual(player)
     end
 end
 
@@ -1487,7 +1383,6 @@ ScreenGui.Destroying:Connect(function()
     if cursorConnection then cursorConnection:Disconnect() end
     if renderConnection then renderConnection:Disconnect() end
     if featureConnection then featureConnection:Disconnect() end
-    pcall(function() RunService:UnbindFromRenderStep("VantaLolAimbot") end)
     if indicatorTween then indicatorTween:Cancel() end
     for _, tween in pairs(tabPageTweens) do
         pcall(function() tween:Cancel() end)
@@ -1497,6 +1392,6 @@ ScreenGui.Destroying:Connect(function()
     end
 end)
 
-print("[vanta.lol] Version 6.1 FIX loaded. GUI parent: " .. GuiParentName .. ". Press RightShift to open the menu.")
+print("[vanta.lol] Version 6.1 loaded. GUI parent: " .. GuiParentName .. ". Press RightShift to open the menu.")
 
 -- owned by maks and maciek

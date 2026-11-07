@@ -1,5 +1,22 @@
 --[[
-    vanta.lol v6.6 - interface and configuration panel
+    vanta.lol v6.9 - interface and configuration panel
+    Changes vs v6.8 (long range):
+      * Hitbox Expander removed (it never registered hits in this game and deformed characters). The HITBOX tab
+        is now TUNING.
+      * Far Distance / Far Part: beyond that range the aimbot switches to a stable body part (default
+        HumanoidRootPart) - Roblox simplifies animations of distant players, so heads and limbs jump around.
+      * Ping Compensation: leads the target by your ping x a factor (0 = off).
+      * ESP box is built from the root part (no more jumping box at long range) and the skeleton can be hidden
+        beyond a chosen distance.
+    Changes vs v6.7 (aimbot at long range):
+      * New "Bullet Speed" slider: leads the target by distance / speed for projectile weapons (0 = instant hits).
+      * New "Mouse Gain" slider: scales how hard Mouse mode pulls, to match your sensitivity at any distance.
+    Changes vs v6.6 (ESP skeleton):
+      * Skeleton rebuilt from the character's Motor6D joints (true joint positions) instead of hard-coded part
+        pairs, so it fits R6, R15 and custom rigs and no longer zigzags through part centers.
+      * Bones whose end is behind or too close to the camera are skipped, and absurdly long lines are dropped,
+        which removes the lines flying across the screen.
+      * Joint lists are cached per character (rebuilt every second), so the skeleton is also cheaper.
     Changes vs v6.5 (aimbot tracking):
       * New "Tracking" slider: aims ahead by the time the smoothing makes the aim trail behind, so the aim stays
         on a target that keeps moving instead of lagging behind it.
@@ -41,12 +58,12 @@ if not LocalPlayer then
     return
 end
 
-local GUI_NAME = "VantaLolUI_v66"
+local GUI_NAME = "VantaLolUI_v69"
 local CONFIG_FILE = "vanta.lol_config.json"
 
 local function safeDestroyPrevious(parent)
     if not parent then return end
-    for _, name in ipairs({GUI_NAME, "VantaLolUI_v65", "VantaLolUI_v64", "VantaLolUI_v63", "VantaLolUI_v62", "VantaLolUI_v61"}) do
+    for _, name in ipairs({GUI_NAME, "VantaLolUI_v68", "VantaLolUI_v67", "VantaLolUI_v66", "VantaLolUI_v65", "VantaLolUI_v64", "VantaLolUI_v63", "VantaLolUI_v62", "VantaLolUI_v61"}) do
         local ok, oldGui = pcall(function() return parent:FindFirstChild(name) end)
         if ok and oldGui then pcall(function() oldGui:Destroy() end) end
     end
@@ -118,6 +135,11 @@ local Defaults = {
     AimbotActivation = "RMB",
     AimbotMode = "Camera",
     AimbotTracking = 0.8,
+    AimbotBulletSpeed = 0,
+    AimbotMouseGain = 1,
+    AimbotFarDistance = 150,
+    AimbotFarPart = "HumanoidRootPart",
+    AimbotPingComp = 0,
     AimbotPrediction = 0,
     AimbotMaxDistance = 1000,
     TeamCheck = true,
@@ -131,6 +153,7 @@ local Defaults = {
     BoxFillTransparency = 0.85,
     ESPSkeleton = false,
     SkeletonThickness = 1.5,
+    SkeletonMaxDistance = 300,
     SkeletonColor = Color3.fromRGB(255, 255, 255),
     ESPHealth = false,
     ESPLines = false,
@@ -138,11 +161,6 @@ local Defaults = {
     ESPName = true,
     ESPColor = Color3.fromRGB(255, 70, 70),
     ESPTeamColor = Color3.fromRGB(70, 220, 130),
-
-    -- Hitbox expander
-    Hitbox = false,
-    HitboxSize = 3,
-    HitboxPart = "Head",
 
     -- Interface
     MenuKey = "RightShift",
@@ -367,7 +385,7 @@ AccentBar.Parent = Header
 registerAccentUpdater(function() AccentBar.BackgroundColor3 = Colors.Accent end)
 
 makeLabel(Header, "vanta.lol", UDim2.fromOffset(16, 6), UDim2.new(1, -90, 0, 25), 18, Colors.Text, Enum.Font.GothamBold)
-local Subtitle = makeLabel(Header, "AIM / ESP / CONFIG  /  v6.6", UDim2.fromOffset(17, 31), UDim2.new(1, -100, 0, 16), 10, Colors.Accent, Enum.Font.Gotham)
+local Subtitle = makeLabel(Header, "AIM / ESP / CONFIG  /  v6.9", UDim2.fromOffset(17, 31), UDim2.new(1, -100, 0, 16), 10, Colors.Accent, Enum.Font.Gotham)
 registerAccentUpdater(function() Subtitle.TextColor3 = Colors.Accent end)
 
 local Close = Instance.new("TextButton")
@@ -416,7 +434,7 @@ Content.BackgroundTransparency = 1
 Content.Parent = Main
 Content.ClipsDescendants = true
 
-local TabNames = {"AIMBOT", "ESP", "HITBOX", "GENERAL", "STYLE", "CONFIG"}
+local TabNames = {"AIMBOT", "ESP", "TUNING", "GENERAL", "STYLE", "CONFIG"}
 local TabButtons = {}
 local Pages = {}
 local activeTab = 1
@@ -695,7 +713,7 @@ end
 
 -- Menu key rebinding state (a table keeps the top-level local count low).
 local KeybindState = {Listening = nil, IgnoreUntil = 0}
-local TOAST_TOGGLES = {Aimbot = true, ESP = true, Hitbox = true}
+local TOAST_TOGGLES = {Aimbot = true, ESP = true}
 
 local function getMenuKeyCode()
     local ok, key = pcall(function() return Enum.KeyCode[Settings.MenuKey] end)
@@ -1141,6 +1159,8 @@ createSlider(Pages[1], "FOV Radius", "Max pixel distance from screen center for 
 createSlider(Pages[1], "Smoothness", "Lower = slower camera movement, higher = snappier.", "AimbotSmoothness", 0.05, 1.00, 0.05)
 createSlider(Pages[1], "Prediction", "Leads moving targets (seconds). 0 = off.", "AimbotPrediction", 0, 0.30, 0.01)
 createSlider(Pages[1], "Tracking", "Keeps the aim on moving targets (0 = off, 1 = full).", "AimbotTracking", 0, 1, 0.05)
+createSlider(Pages[1], "Bullet Speed", "Studs/sec of projectiles. 0 = instant (hitscan).", "AimbotBulletSpeed", 0, 2000, 50)
+createSlider(Pages[1], "Mouse Gain", "Mouse mode pull. Raise if slow, lower if it shakes.", "AimbotMouseGain", 0.2, 3, 0.1)
 createSlider(Pages[1], "Max Distance", "Ignores targets farther than this (studs).", "AimbotMaxDistance", 50, 2000, 50)
 createDropdown(Pages[1], "Target Part", "Body part used as the aim reference point.", "AimbotPart", {"Head", "HumanoidRootPart", "UpperTorso", "Torso"})
 createToggle(Pages[1], "Team Check", "Skips teammates for targeting and visuals.", "TeamCheck")
@@ -1164,12 +1184,14 @@ createColorPicker(Pages[2], "Enemy Color", "ESPColor")
 createColorPicker(Pages[2], "Team Color", "ESPTeamColor")
 createColorPicker(Pages[2], "Skeleton Color", "SkeletonColor")
 
--- HITBOX
-createSection(Pages[3], "HITBOX EXPANDER")
-createToggle(Pages[3], "Hitbox Expander", "Enlarges enemy parts on your client (not visual only).", "Hitbox")
-createDropdown(Pages[3], "Hitbox Part", "Which body part gets enlarged.", "HitboxPart", {"Head", "HumanoidRootPart"})
-createSlider(Pages[3], "Hitbox Size", "Slider 1-7 = cube of 2-14 studs.", "HitboxSize", 1, 7, 0.1)
-createRow(Pages[3], "Client-Side Only", "Works only where the game trusts client-side hit detection.", 58, 20)
+-- TUNING
+createSection(Pages[3], "LONG RANGE AIM")
+createSlider(Pages[3], "Far Distance", "Beyond this range the Far Part is aimed (0 = off).", "AimbotFarDistance", 0, 1000, 25)
+createDropdown(Pages[3], "Far Part", "Stable body part used for distant targets.", "AimbotFarPart", {"HumanoidRootPart", "UpperTorso", "Torso"})
+createSlider(Pages[3], "Ping Compensation", "Leads targets by your ping x this (0 = off).", "AimbotPingComp", 0, 2, 0.1)
+createSection(Pages[3], "ESP AT RANGE")
+createSlider(Pages[3], "Skeleton Max Distance", "Hides skeletons beyond this range (0 = no limit).", "SkeletonMaxDistance", 0, 1000, 25)
+createRow(Pages[3], "Why far players look bent", "Roblox simplifies animations of distant players. Aim at the body, not limbs.", 58, 20)
 
 -- GENERAL
 createSection(Pages[4], "MENU")
@@ -1242,8 +1264,12 @@ local function applyLoadedSettings(saved)
     Settings.AimbotSmoothness = math.clamp(tonumber(Settings.AimbotSmoothness) or 0.25, 0.05, 1)
     Settings.AimbotPrediction = math.clamp(tonumber(Settings.AimbotPrediction) or 0, 0, 0.30)
     Settings.AimbotTracking = math.clamp(tonumber(Settings.AimbotTracking) or 0.8, 0, 1)
+    Settings.AimbotBulletSpeed = math.clamp(tonumber(Settings.AimbotBulletSpeed) or 0, 0, 2000)
+    Settings.AimbotMouseGain = math.clamp(tonumber(Settings.AimbotMouseGain) or 1, 0.2, 3)
+    Settings.AimbotFarDistance = math.clamp(tonumber(Settings.AimbotFarDistance) or 150, 0, 1000)
+    Settings.AimbotPingComp = math.clamp(tonumber(Settings.AimbotPingComp) or 0, 0, 2)
+    Settings.SkeletonMaxDistance = math.clamp(tonumber(Settings.SkeletonMaxDistance) or 300, 0, 1000)
     Settings.AimbotMaxDistance = math.clamp(tonumber(Settings.AimbotMaxDistance) or 1000, 50, 2000)
-    Settings.HitboxSize = math.clamp(tonumber(Settings.HitboxSize) or 3, 1, 7)
     Settings.UIScale = math.clamp(tonumber(Settings.UIScale) or 1, 0.80, 1.20)
     Settings.BackgroundOpacity = math.clamp(tonumber(Settings.BackgroundOpacity) or 0, 0, 0.30)
     Settings.SkeletonThickness = math.clamp(tonumber(Settings.SkeletonThickness) or 1.5, 0.5, 4)
@@ -1256,12 +1282,12 @@ local function applyLoadedSettings(saved)
     if not validPositions[Settings.OverlayPosition] then Settings.OverlayPosition = "TopLeft" end
     local validParts = {Head = true, HumanoidRootPart = true, UpperTorso = true, Torso = true}
     if not validParts[Settings.AimbotPart] then Settings.AimbotPart = "Head" end
+    local validFarParts = {HumanoidRootPart = true, UpperTorso = true, Torso = true}
+    if not validFarParts[Settings.AimbotFarPart] then Settings.AimbotFarPart = "HumanoidRootPart" end
     local validModes = {Camera = true, Mouse = true}
     if not validModes[Settings.AimbotMode] then Settings.AimbotMode = "Camera" end
     local validActivation = {RMB = true, LMB = true, Always = true}
     if not validActivation[Settings.AimbotActivation] then Settings.AimbotActivation = "RMB" end
-    local validHitboxParts = {Head = true, HumanoidRootPart = true}
-    if not validHitboxParts[Settings.HitboxPart] then Settings.HitboxPart = "Head" end
     local keyOk, keyEnum = pcall(function() return Enum.KeyCode[Settings.MenuKey] end)
     if not keyOk or not keyEnum then Settings.MenuKey = "RightShift" end
 end
@@ -1313,7 +1339,7 @@ createActionButton(Pages[6], "Reset Configuration", "Restores built-in defaults 
     setConfigStatus("Config: defaults restored (not written to disk).", Colors.Green)
 end, Colors.Off)
 createSection(Pages[6], "ABOUT")
-createRow(Pages[6], "vanta.lol v6.6", "Your menu key (default RightShift) opens or closes the menu.", 52, 20)
+createRow(Pages[6], "vanta.lol v6.9", "Your menu key (default RightShift) opens or closes the menu.", 52, 20)
 createRow(Pages[6], "Credits", "owned by maks and maciek", 48, 20)
 createRow(Pages[6], "Config Footer", "Saved configs include: owned by maks and maciek.", 48, 20)
 
@@ -1418,27 +1444,9 @@ UserInputService.InputBegan:Connect(function(input)
 end)
 
 -- ============================================================
--- ESP / aim assist / hitbox expander
+-- ESP / aim assist
 -- ============================================================
 local PlayerOverlays = {}
-local HitboxRecords = {}
-
--- Puts a player's expanded part back exactly as it was.
-local function restoreHitbox(player)
-    local record = HitboxRecords[player]
-    if not record then return end
-    local part = record.Part
-    if part and part.Parent then
-        pcall(function()
-            part.Size = record.Size
-            part.Transparency = record.Transparency
-            part.CanCollide = record.CanCollide
-            part.Massless = record.Massless
-        end)
-    end
-    HitboxRecords[player] = nil
-end
-
 local aimCircle = Instance.new("Frame")
 aimCircle.Name = "AimFOVCircle"
 aimCircle.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1457,18 +1465,7 @@ aimCircleStroke.Transparency = 0.15
 aimCircleStroke.Parent = aimCircle
 registerAccentUpdater(function() aimCircleStroke.Color = Colors.Accent end)
 
-local R15_BONES = {
-    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
-    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
-    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
-    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
-}
-local R6_BONES = {
-    {"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
-    {"Torso", "Left Leg"}, {"Torso", "Right Leg"},
-}
-local BONE_COUNT = #R15_BONES
+local BONE_COUNT = 24 -- line pool per player (an R15 skeleton needs 19 bones, R6 about 10)
 
 -- Draws a line between two screen points using a centered, rotated frame.
 local function setLine(frame, a, b, color, thickness)
@@ -1498,7 +1495,6 @@ local function hideOverlay(overlay)
 end
 
 local function removePlayerOverlay(player)
-    restoreHitbox(player)
     local overlay = PlayerOverlays[player]
     if overlay then
         for _, object in pairs(overlay) do
@@ -1631,34 +1627,105 @@ local function isTargetVisible(targetPart, character, camera)
     return result == nil or result.Instance:IsDescendantOf(character)
 end
 
-local function getTargetPart(character)
-    local requested = character:FindFirstChild(Settings.AimbotPart)
+local function getTargetPart(character, distance)
+    local partName = Settings.AimbotPart
+    local isFar = Settings.AimbotFarDistance > 0 and distance ~= nil and distance > Settings.AimbotFarDistance
+    if isFar then partName = Settings.AimbotFarPart end
+
+    local requested = character:FindFirstChild(partName)
     if requested and requested:IsA("BasePart") then return requested end
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    -- A missing far part (R6 has no UpperTorso, R15 has no Torso) falls back to the root, not the jumpy head.
+    if isFar and root and root:IsA("BasePart") then return root end
     local head = character:FindFirstChild("Head")
     if head and head:IsA("BasePart") then return head end
-    local root = character:FindFirstChild("HumanoidRootPart")
     if root and root:IsA("BasePart") then return root end
     return nil
 end
 
+-- Skeleton built from the character's Motor6D joints. For every body part the bones run from the joint
+-- that attaches it to its parent to the joints of its children (hands, feet and head end at the part's tip).
+local function buildSkeletonNodes(character)
+    local nodes = {}
+    local byPart = {}
+    local function getNode(part)
+        local node = byPart[part]
+        if not node then
+            node = {Part = part, ParentMotor = nil, ChildMotors = {}}
+            byPart[part] = node
+            table.insert(nodes, node)
+        end
+        return node
+    end
+    for _, descendant in ipairs(character:GetDescendants()) do
+        if descendant:IsA("Motor6D") then
+            local part0, part1 = descendant.Part0, descendant.Part1
+            if part0 and part1 and part0.Parent == character and part1.Parent == character then
+                getNode(part1).ParentMotor = descendant
+                table.insert(getNode(part0).ChildMotors, descendant)
+            end
+        end
+    end
+    return nodes
+end
+
+local function drawBone(frame, camera, fromWorld, toWorld, maxLength, color, thickness)
+    local a = camera:WorldToViewportPoint(fromWorld)
+    local b = camera:WorldToViewportPoint(toWorld)
+    -- Points behind (or almost on) the camera plane project to huge, wrong coordinates: skip them.
+    if a.Z <= 0.1 or b.Z <= 0.1 then return false end
+    local pointA, pointB = Vector2.new(a.X, a.Y), Vector2.new(b.X, b.Y)
+    if (pointB - pointA).Magnitude > maxLength then return false end
+    setLine(frame, pointA, pointB, color, thickness)
+    return true
+end
+
 local function updateSkeleton(overlay, character, camera)
-    local bones = character:FindFirstChild("UpperTorso") and R15_BONES or R6_BONES
-    for i, frame in ipairs(overlay.Bones) do
-        local drawn = false
-        local pair = bones[i]
-        if pair then
-            local partA = character:FindFirstChild(pair[1])
-            local partB = character:FindFirstChild(pair[2])
-            if partA and partB then
-                local a = camera:WorldToViewportPoint(partA.Position)
-                local b = camera:WorldToViewportPoint(partB.Position)
-                if a.Z > 0 and b.Z > 0 then
-                    setLine(frame, Vector2.new(a.X, a.Y), Vector2.new(b.X, b.Y), Settings.SkeletonColor, Settings.SkeletonThickness)
-                    drawn = true
+    local now = os.clock()
+    if overlay.SkeletonCharacter ~= character or now - (overlay.SkeletonBuilt or 0) > 1 then
+        overlay.SkeletonCharacter = character
+        overlay.SkeletonBuilt = now
+        overlay.SkeletonNodes = buildSkeletonNodes(character)
+    end
+
+    local viewport = camera.ViewportSize
+    local maxLength = math.max(viewport.X, viewport.Y) * 2
+    local color = Settings.SkeletonColor
+    local thickness = Settings.SkeletonThickness
+    local frames = overlay.Bones
+    local used = 0
+
+    for _, node in ipairs(overlay.SkeletonNodes) do
+        local part = node.Part
+        if part.Parent == character and part.Name ~= "HumanoidRootPart" then
+            local cframe = part.CFrame
+            local parentMotor = node.ParentMotor
+            local startPosition = parentMotor and cframe:PointToWorldSpace(parentMotor.C1.Position) or cframe.Position
+
+            local childCount = 0
+            for _, motor in ipairs(node.ChildMotors) do
+                if used < #frames and motor.Part0 == part and motor.Part1 and motor.Part1.Parent == character then
+                    childCount = childCount + 1
+                    local endPosition = cframe:PointToWorldSpace(motor.C0.Position)
+                    if drawBone(frames[used + 1], camera, startPosition, endPosition, maxLength, color, thickness) then
+                        used = used + 1
+                    end
+                end
+            end
+
+            -- Leaf parts (head, hands, feet, R6 limbs): run the bone through the part to its far end.
+            if childCount == 0 and parentMotor and used < #frames then
+                local endPosition = cframe.Position * 2 - startPosition
+                if drawBone(frames[used + 1], camera, startPosition, endPosition, maxLength, color, thickness) then
+                    used = used + 1
                 end
             end
         end
-        if not drawn then frame.Visible = false end
+    end
+
+    for index = used + 1, #frames do
+        frames[index].Visible = false
     end
 end
 
@@ -1680,7 +1747,8 @@ local function updatePlayerOverlay(player, overlay, camera)
     end
 
     local rootScreen, rootOnScreen = camera:WorldToViewportPoint(root.Position)
-    local topScreen = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.7, 0))
+    -- Box top comes from the root part, not the head: the head jumps around when the game simplifies far animations.
+    local topScreen = camera:WorldToViewportPoint(root.Position + Vector3.new(0, 2.5, 0))
     local bottomScreen = camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
     if not rootOnScreen or rootScreen.Z <= 0 or topScreen.Z <= 0 or bottomScreen.Z <= 0 then
         hideOverlay(overlay)
@@ -1741,52 +1809,12 @@ local function updatePlayerOverlay(player, overlay, camera)
         overlay.Line.Visible = false
     end
 
-    if Settings.ESPSkeleton then
+    local skeletonRange = Settings.SkeletonMaxDistance
+    local inSkeletonRange = skeletonRange <= 0 or (root.Position - camera.CFrame.Position).Magnitude <= skeletonRange
+    if Settings.ESPSkeleton and inSkeletonRange then
         updateSkeleton(overlay, character, camera)
     else
         hideBones(overlay)
-    end
-end
-
--- Hitbox expander: enlarges the chosen part client-side, restores it whenever it is no longer needed.
-local function getHitboxPart(character)
-    local part = character:FindFirstChild(Settings.HitboxPart)
-    if part and part:IsA("BasePart") then return part end
-    return nil
-end
-
-local function updateHitboxVisual(player)
-    local character = player.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    local target = character and getHitboxPart(character)
-    local sameTeam = LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team
-    local shouldExpand = Settings.Hitbox and target ~= nil and humanoid ~= nil and humanoid.Health > 0
-        and not (Settings.TeamCheck and sameTeam)
-
-    local record = HitboxRecords[player]
-    -- Feature off, player dead/teammate, respawned, or the chosen part changed -> put the old part back first.
-    if record and (not shouldExpand or record.Part ~= target) then
-        restoreHitbox(player)
-        record = nil
-    end
-
-    if shouldExpand then
-        if not record then
-            record = {
-                Part = target,
-                Size = target.Size,
-                Transparency = target.Transparency,
-                CanCollide = target.CanCollide,
-                Massless = target.Massless,
-            }
-            HitboxRecords[player] = record
-        end
-        local side = Settings.HitboxSize * 2 -- slider 1-5 => 2-10 studs
-        local newSize = Vector3.new(side, side, side)
-        if target.Size ~= newSize then target.Size = newSize end
-        if target.Transparency ~= 0.7 then target.Transparency = 0.7 end
-        if target.CanCollide then target.CanCollide = false end
-        if not target.Massless then target.Massless = true end
     end
 end
 
@@ -1800,6 +1828,7 @@ Players.PlayerRemoving:Connect(removePlayerOverlay)
 local lockedPlayer = nil
 local mouseModeWarned = false
 local mouseResidual = Vector2.new(0, 0)
+local PingCache = {Value = 0, At = 0}
 
 local function isAimActive()
     local mode = Settings.AimbotActivation
@@ -1822,7 +1851,9 @@ local function evaluateCandidate(player, camera, center, maxScreenDistance)
     local sameTeam = LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team
     if Settings.TeamCheck and sameTeam then return nil end
 
-    local part = getTargetPart(character)
+    local aimRoot = character:FindFirstChild("HumanoidRootPart")
+    local rootDistance = aimRoot and (aimRoot.Position - camera.CFrame.Position).Magnitude or nil
+    local part = getTargetPart(character, rootDistance)
     if not part then return nil end
 
     if (part.Position - camera.CFrame.Position).Magnitude > Settings.AimbotMaxDistance then return nil end
@@ -1892,7 +1923,23 @@ local function updateFeatures(dt)
             -- "Tracking" aims that much ahead, so the aim stays on a target that keeps moving.
             local trailTime = 0
             if alpha > 0 then trailTime = math.min(frameTime * (1 - alpha) / alpha, 0.25) end
-            local leadTime = Settings.AimbotPrediction + trailTime * Settings.AimbotTracking
+            -- Projectile weapons: the bullet needs distance / speed seconds to arrive, so aim that far ahead.
+            local travelTime = 0
+            if Settings.AimbotBulletSpeed > 0 then
+                local targetDistance = (targetPart.Position - camera.CFrame.Position).Magnitude
+                travelTime = math.min(targetDistance / Settings.AimbotBulletSpeed, 1.5)
+            end
+            -- Ping compensation: other players are shown slightly in the past, so aim ahead by your ping.
+            local pingLead = 0
+            if Settings.AimbotPingComp > 0 then
+                local clock = os.clock()
+                if clock - PingCache.At > 0.5 then
+                    PingCache.Value = getPing()
+                    PingCache.At = clock
+                end
+                pingLead = math.min(PingCache.Value / 1000, 0.5) * Settings.AimbotPingComp
+            end
+            local leadTime = Settings.AimbotPrediction + travelTime + pingLead + trailTime * Settings.AimbotTracking
             local aimPosition = targetPart.Position + targetPart.AssemblyLinearVelocity * leadTime
             local desired = CFrame.lookAt(camera.CFrame.Position, aimPosition)
             local usedMouse = false
@@ -1906,7 +1953,8 @@ local function updateFeatures(dt)
                             reference = UserInputService:GetMouseLocation()
                         end
                         -- mousemoverel works in whole pixels: keep the fractional rest so slow tracking never stalls.
-                        mouseResidual = mouseResidual + Vector2.new((screenPoint.X - reference.X) * alpha, (screenPoint.Y - reference.Y) * alpha)
+                        local mouseAlpha = math.min(alpha * Settings.AimbotMouseGain, 1.5)
+                        mouseResidual = mouseResidual + Vector2.new((screenPoint.X - reference.X) * mouseAlpha, (screenPoint.Y - reference.Y) * mouseAlpha)
                         local stepX = mouseResidual.X >= 0 and math.floor(mouseResidual.X) or math.ceil(mouseResidual.X)
                         local stepY = mouseResidual.Y >= 0 and math.floor(mouseResidual.Y) or math.ceil(mouseResidual.Y)
                         if stepX ~= 0 or stepY ~= 0 then
@@ -1930,7 +1978,6 @@ local function updateFeatures(dt)
 
     for player, overlay in pairs(PlayerOverlays) do
         updatePlayerOverlay(player, overlay, camera)
-        updateHitboxVisual(player)
     end
 end
 
@@ -1958,10 +2005,9 @@ ScreenGui.Destroying:Connect(function()
     if indicatorTween then indicatorTween:Cancel() end
     for _, tween in pairs(tabPageTweens) do pcall(function() tween:Cancel() end) end
     for _, tween in pairs(pageScrollTweens) do pcall(function() tween:Cancel() end) end
-    for player in pairs(HitboxRecords) do restoreHitbox(player) end
     for player in pairs(PlayerOverlays) do removePlayerOverlay(player) end
 end)
 
-print("[vanta.lol] Version 6.6 loaded. GUI parent: " .. GuiParentName .. ". Press " .. tostring(Settings.MenuKey) .. " to open the menu.")
+print("[vanta.lol] Version 6.9 loaded. GUI parent: " .. GuiParentName .. ". Press " .. tostring(Settings.MenuKey) .. " to open the menu.")
 
 -- owned by maks and maciek

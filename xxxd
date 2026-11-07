@@ -1,10 +1,20 @@
 --[[
-    vanta.lol v6.2 - interface and configuration panel
-    Changes vs v6.1:
-      * Fixed overlapping text/controls (truncated descriptions, fixed layout order, slider moved to the right).
-      * ESP: skeleton, health bar, box fill, better box fitting, thicker/centered lines.
-      * Full HSV color picker (ESP, team, skeleton) + "Custom" accent theme with own color.
-      * New watermark: accent bar, custom text, username, FPS, ping, clock.
+    vanta.lol v6.4 - interface and configuration panel
+    Changes vs v6.3 (menu only, aimbot/ESP/hitbox logic untouched):
+      * Toast notifications (config save/load/reset, Aimbot/ESP/Hitbox toggles, menu key changes).
+      * Rebindable menu key (GENERAL > Menu Key), saved in the config.
+      * Dropdowns: left click = next option, right click = previous option.
+      * Hover effects on tabs and action buttons, small pop-in animation when the menu opens.
+      * Window can no longer be dragged off screen; overlay no longer sits under the Roblox top bar.
+      * Slightly larger / brighter description text.
+    Changes vs v6.2:
+      * Aimbot: activation key (hold RMB / hold LMB / always), target lock (no more flicker between targets),
+        smoothing independent of FPS, optional movement prediction, max distance, ForceField skip,
+        one shared RaycastParams (much cheaper visibility check), CanCollide=false parts no longer block the ray.
+      * Hitbox: choose which part is expanded (Head / HumanoidRootPart), parts are always restored
+        (player leaves, respawn, toggle off, part changed, script destroyed), Massless is restored too.
+        Menu text is now honest: it is an expander, not a visual-only overlay.
+      * Safer re-execute: UnbindFromRenderStep before BindToRenderStep.
 ]]
 
 local Players = game:GetService("Players")
@@ -22,12 +32,12 @@ if not LocalPlayer then
     return
 end
 
-local GUI_NAME = "VantaLolUI_v62"
+local GUI_NAME = "VantaLolUI_v64"
 local CONFIG_FILE = "vanta.lol_config.json"
 
 local function safeDestroyPrevious(parent)
     if not parent then return end
-    for _, name in ipairs({GUI_NAME, "VantaLolUI_v61"}) do
+    for _, name in ipairs({GUI_NAME, "VantaLolUI_v63", "VantaLolUI_v62", "VantaLolUI_v61"}) do
         local ok, oldGui = pcall(function() return parent:FindFirstChild(name) end)
         if ok and oldGui then pcall(function() oldGui:Destroy() end) end
     end
@@ -96,6 +106,9 @@ local Defaults = {
     AimbotFOV = 180,
     AimbotSmoothness = 0.25,
     AimbotPart = "Head",
+    AimbotActivation = "RMB",
+    AimbotPrediction = 0,
+    AimbotMaxDistance = 1000,
     TeamCheck = true,
     VisibleCheck = true,
     ShowFOV = false,
@@ -115,11 +128,13 @@ local Defaults = {
     ESPColor = Color3.fromRGB(255, 70, 70),
     ESPTeamColor = Color3.fromRGB(70, 220, 130),
 
-    -- Hitbox visual
+    -- Hitbox expander
     Hitbox = false,
     HitboxSize = 3,
+    HitboxPart = "Head",
 
     -- Interface
+    MenuKey = "RightShift",
     ShowWatermark = false,
     WatermarkText = "vanta.lol",
     ShowUsername = false,
@@ -221,6 +236,64 @@ local function makeLabel(parent, text, position, size, textSize, color, font, al
     return label
 end
 
+-- Toast notifications (bottom center)
+local notify
+do
+    local holder = Instance.new("Frame")
+    holder.Name = "Toasts"
+    holder.AnchorPoint = Vector2.new(0.5, 1)
+    holder.Position = UDim2.new(0.5, 0, 1, -28)
+    holder.Size = UDim2.fromOffset(320, 220)
+    holder.BackgroundTransparency = 1
+    holder.ZIndex = 60
+    holder.Parent = ScreenGui
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.Parent = holder
+
+    local counter = 0
+    notify = function(text, kind)
+        counter = counter + 1
+        local accent = Colors.Accent
+        if kind == "error" then accent = Colors.Red elseif kind == "success" then accent = Colors.Green end
+
+        local toast = Instance.new("TextLabel")
+        toast.LayoutOrder = counter
+        toast.Size = UDim2.fromOffset(300, 30)
+        toast.BackgroundColor3 = Color3.fromRGB(8, 8, 10)
+        toast.BackgroundTransparency = 1
+        toast.BorderSizePixel = 0
+        toast.Font = Enum.Font.GothamMedium
+        toast.Text = tostring(text)
+        toast.TextColor3 = Colors.Text
+        toast.TextTransparency = 1
+        toast.TextSize = 12
+        toast.TextTruncate = Enum.TextTruncate.AtEnd
+        toast.ZIndex = 61
+        toast.Parent = holder
+        round(toast, 6)
+        local toastStroke = stroke(toast, accent, 1, 1)
+
+        local fade = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        TweenService:Create(toast, fade, {BackgroundTransparency = 0.08, TextTransparency = 0}):Play()
+        TweenService:Create(toastStroke, fade, {Transparency = 0.2}):Play()
+
+        task.delay(2.6, function()
+            pcall(function()
+                TweenService:Create(toast, fade, {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+                TweenService:Create(toastStroke, fade, {Transparency = 1}):Play()
+            end)
+            task.delay(0.3, function()
+                pcall(function() toast:Destroy() end)
+            end)
+        end)
+    end
+end
+
 -- Main window
 local Main = Instance.new("Frame")
 Main.Name = "Main"
@@ -283,7 +356,7 @@ AccentBar.Parent = Header
 registerAccentUpdater(function() AccentBar.BackgroundColor3 = Colors.Accent end)
 
 makeLabel(Header, "vanta.lol", UDim2.fromOffset(16, 6), UDim2.new(1, -90, 0, 25), 18, Colors.Text, Enum.Font.GothamBold)
-local Subtitle = makeLabel(Header, "AIM / ESP / CONFIG  /  v6.2", UDim2.fromOffset(17, 31), UDim2.new(1, -100, 0, 16), 10, Colors.Accent, Enum.Font.Gotham)
+local Subtitle = makeLabel(Header, "AIM / ESP / CONFIG  /  v6.4", UDim2.fromOffset(17, 31), UDim2.new(1, -100, 0, 16), 10, Colors.Accent, Enum.Font.Gotham)
 registerAccentUpdater(function() Subtitle.TextColor3 = Colors.Accent end)
 
 local Close = Instance.new("TextButton")
@@ -450,6 +523,12 @@ end
 
 for i, button in ipairs(TabButtons) do
     button.MouseButton1Click:Connect(function() selectTab(i) end)
+    button.MouseEnter:Connect(function()
+        if i ~= activeTab then button.TextColor3 = Colors.Text end
+    end)
+    button.MouseLeave:Connect(function()
+        if i ~= activeTab then button.TextColor3 = Colors.Muted end
+    end)
 end
 
 -- Smooth mouse wheel scrolling
@@ -529,7 +608,7 @@ local function updateOverlayPosition()
     local position = Settings.OverlayPosition
     if position == "TopRight" then
         Overlay.AnchorPoint = Vector2.new(1, 0)
-        Overlay.Position = UDim2.new(1, -12, 0, 12)
+        Overlay.Position = UDim2.new(1, -12, 0, 44)
     elseif position == "BottomLeft" then
         Overlay.AnchorPoint = Vector2.new(0, 1)
         Overlay.Position = UDim2.new(0, 12, 1, -12)
@@ -538,7 +617,7 @@ local function updateOverlayPosition()
         Overlay.Position = UDim2.new(1, -12, 1, -12)
     else
         Overlay.AnchorPoint = Vector2.new(0, 0)
-        Overlay.Position = UDim2.fromOffset(12, 12)
+        Overlay.Position = UDim2.fromOffset(12, 44)
     end
 end
 
@@ -591,7 +670,7 @@ local function createRow(parent, title, description, height, reserve)
     local titleLabel = makeLabel(row, title, UDim2.fromOffset(13, 7), UDim2.new(1, -reserve, 0, 20), 12, Colors.Text, Enum.Font.GothamSemibold)
     titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
     if description and description ~= "" then
-        local desc = makeLabel(row, description, UDim2.fromOffset(13, 29), UDim2.new(1, -reserve, 0, 18), 9, Colors.Muted, Enum.Font.Gotham)
+        local desc = makeLabel(row, description, UDim2.fromOffset(13, 29), UDim2.new(1, -reserve, 0, 18), 10, Color3.fromRGB(172, 180, 198), Enum.Font.Gotham)
         desc.TextTruncate = Enum.TextTruncate.AtEnd
     end
     return row
@@ -602,6 +681,25 @@ local function createSection(parent, text)
     registerAccentUpdater(function() section.TextColor3 = Colors.Accent end)
     return section
 end
+
+-- Menu key rebinding state (a table keeps the top-level local count low).
+local KeybindState = {Listening = nil, IgnoreUntil = 0}
+local TOAST_TOGGLES = {Aimbot = true, ESP = true, Hitbox = true}
+
+local function getMenuKeyCode()
+    local ok, key = pcall(function() return Enum.KeyCode[Settings.MenuKey] end)
+    if ok and key then return key end
+    return Enum.KeyCode.RightShift
+end
+
+UserInputService.InputBegan:Connect(function(input)
+    local listening = KeybindState.Listening
+    if not listening then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    KeybindState.Listening = nil
+    KeybindState.IgnoreUntil = os.clock() + 0.25
+    listening.Callback(input.KeyCode)
+end)
 
 local function createToggle(parent, title, description, settingKey)
     local row = createRow(parent, title, description, 58, 95)
@@ -634,6 +732,9 @@ local function createToggle(parent, title, description, settingKey)
         refresh()
         updateOverlay(0)
         if settingKey == "CompactMode" then applyLayoutSettings(true) end
+        if TOAST_TOGGLES[settingKey] then
+            notify(title .. ": " .. (Settings[settingKey] and "ON" or "OFF"), Settings[settingKey] and "success" or "info")
+        end
     end)
     registerAccentUpdater(refresh)
     registerRefresher(refresh)
@@ -745,16 +846,18 @@ local function createDropdown(parent, title, description, settingKey, options)
     local function refresh()
         button.Text = tostring(Settings[settingKey]) .. "  ▾"
     end
-    button.MouseButton1Click:Connect(function()
+    local function cycle(step)
         local currentIndex = table.find(options, Settings[settingKey]) or 0
-        Settings[settingKey] = options[(currentIndex % #options) + 1]
+        Settings[settingKey] = options[((currentIndex - 1 + step) % #options) + 1]
         refresh()
         if settingKey == "AccentTheme" then
             applyAccentTheme()
         elseif settingKey == "OverlayPosition" then
             updateOverlay(0)
         end
-    end)
+    end
+    button.MouseButton1Click:Connect(function() cycle(1) end)
+    button.MouseButton2Click:Connect(function() cycle(-1) end)
     refresh()
     registerRefresher(refresh)
     return row
@@ -931,6 +1034,50 @@ local function createTextBox(parent, title, description, settingKey, maxLength)
     return row
 end
 
+local function createKeybind(parent, title, description, settingKey)
+    local row = createRow(parent, title, description, 58)
+    local button = Instance.new("TextButton")
+    button.Position = UDim2.new(1, -155, 0.5, -14)
+    button.Size = UDim2.fromOffset(140, 28)
+    button.BackgroundColor3 = Colors.PanelAlt
+    button.BorderSizePixel = 0
+    button.Font = Enum.Font.GothamSemibold
+    button.TextColor3 = Colors.Text
+    button.TextSize = 10
+    button.AutoButtonColor = true
+    button.Parent = row
+    round(button, 6)
+    local buttonStroke = stroke(button, Colors.Accent, 1, 0.6)
+    registerAccentUpdater(function() buttonStroke.Color = Colors.Accent end)
+
+    local function refresh()
+        local listening = KeybindState.Listening
+        if listening and listening.Button == button then
+            button.Text = "Press a key..."
+        else
+            button.Text = "[ " .. tostring(Settings[settingKey]) .. " ]"
+        end
+    end
+
+    button.MouseButton1Click:Connect(function()
+        KeybindState.Listening = {
+            Button = button,
+            Callback = function(keyCode)
+                if keyCode ~= Enum.KeyCode.Escape and keyCode ~= Enum.KeyCode.Unknown then
+                    Settings[settingKey] = keyCode.Name
+                    notify(title .. " set to " .. keyCode.Name, "success")
+                end
+                refresh()
+            end,
+        }
+        refresh()
+    end)
+
+    refresh()
+    registerRefresher(refresh)
+    return row
+end
+
 applyAccentTheme = function()
     Colors.Accent = getAccent()
     MainStroke.Color = Colors.Accent
@@ -961,6 +1108,13 @@ local function createActionButton(parent, title, description, buttonText, callba
     local buttonStroke = stroke(button, Colors.Accent, 1, 0.22)
     registerAccentUpdater(function() buttonStroke.Color = Colors.Accent end)
     button.MouseButton1Click:Connect(callback)
+    local baseColor = buttonColor or Color3.fromRGB(7, 7, 9)
+    button.MouseEnter:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.12), {BackgroundColor3 = baseColor:Lerp(Colors.Accent, 0.22)}):Play()
+    end)
+    button.MouseLeave:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.12), {BackgroundColor3 = baseColor}):Play()
+    end)
     return row
 end
 
@@ -970,8 +1124,11 @@ end
 -- AIMBOT
 createSection(Pages[1], "AIM ASSIST")
 createToggle(Pages[1], "Aimbot", "Camera assist toward the best candidate in the FOV.", "Aimbot")
+createDropdown(Pages[1], "Activation", "RMB / LMB = hold the button, Always = constant aim.", "AimbotActivation", {"RMB", "LMB", "Always"})
 createSlider(Pages[1], "FOV Radius", "Max pixel distance from screen center for targets.", "AimbotFOV", 10, 360, 5)
 createSlider(Pages[1], "Smoothness", "Lower = slower camera movement, higher = snappier.", "AimbotSmoothness", 0.05, 1.00, 0.05)
+createSlider(Pages[1], "Prediction", "Leads moving targets (seconds). 0 = off.", "AimbotPrediction", 0, 0.30, 0.01)
+createSlider(Pages[1], "Max Distance", "Ignores targets farther than this (studs).", "AimbotMaxDistance", 50, 2000, 50)
 createDropdown(Pages[1], "Target Part", "Body part used as the aim reference point.", "AimbotPart", {"Head", "HumanoidRootPart", "UpperTorso", "Torso"})
 createToggle(Pages[1], "Team Check", "Skips teammates for targeting and visuals.", "TeamCheck")
 createToggle(Pages[1], "Visibility Check", "Raycast check: rejects targets behind walls.", "VisibleCheck")
@@ -995,12 +1152,15 @@ createColorPicker(Pages[2], "Team Color", "ESPTeamColor")
 createColorPicker(Pages[2], "Skeleton Color", "SkeletonColor")
 
 -- HITBOX
-createSection(Pages[3], "HITBOX VISUALIZER")
-createToggle(Pages[3], "Hitbox Overlay", "Local 3D box around the root part (visual only).", "Hitbox")
-createSlider(Pages[3], "Visual Scale", "Scales only the displayed box.", "HitboxSize", 1, 5, 0.1)
-createRow(Pages[3], "Client-Side Only", "Does not change real hitboxes, collisions or physics.", 58, 20)
+createSection(Pages[3], "HITBOX EXPANDER")
+createToggle(Pages[3], "Hitbox Expander", "Enlarges enemy parts on your client (not visual only).", "Hitbox")
+createDropdown(Pages[3], "Hitbox Part", "Which body part gets enlarged.", "HitboxPart", {"Head", "HumanoidRootPart"})
+createSlider(Pages[3], "Hitbox Size", "Slider 1-7 = cube of 2-14 studs.", "HitboxSize", 1, 7, 0.1)
+createRow(Pages[3], "Client-Side Only", "Works only where the game trusts client-side hit detection.", 58, 20)
 
 -- GENERAL
+createSection(Pages[4], "MENU")
+createKeybind(Pages[4], "Menu Key", "Click, then press a key to open/close the menu.", "MenuKey")
 createSection(Pages[4], "WATERMARK & INFO")
 createToggle(Pages[4], "Show Watermark", "Shows the watermark label with accent bar.", "ShowWatermark")
 createTextBox(Pages[4], "Watermark Text", "Custom text shown in the watermark.", "WatermarkText", 24)
@@ -1024,6 +1184,13 @@ createToggle(Pages[5], "Smooth Tab Transitions", "Animated tab indicator and pag
 -- CONFIG
 local ConfigStatus = makeLabel(Pages[6], "Config: ready", UDim2.new(0, 4, 0, 0), UDim2.new(1, -8, 0, 26), 10, Colors.Muted, Enum.Font.Gotham)
 ConfigStatus.TextTruncate = Enum.TextTruncate.AtEnd
+
+local function setConfigStatus(text, color)
+    ConfigStatus.Text = text
+    ConfigStatus.TextColor3 = color
+    local shortText = text:gsub("^Config: ", "")
+    notify(shortText, color == Colors.Red and "error" or "success")
+end
 
 local function serializeSettings()
     local output = {}
@@ -1060,7 +1227,9 @@ local function applyLoadedSettings(saved)
 
     Settings.AimbotFOV = math.clamp(tonumber(Settings.AimbotFOV) or 180, 10, 360)
     Settings.AimbotSmoothness = math.clamp(tonumber(Settings.AimbotSmoothness) or 0.25, 0.05, 1)
-    Settings.HitboxSize = math.clamp(tonumber(Settings.HitboxSize) or 3, 1, 5)
+    Settings.AimbotPrediction = math.clamp(tonumber(Settings.AimbotPrediction) or 0, 0, 0.30)
+    Settings.AimbotMaxDistance = math.clamp(tonumber(Settings.AimbotMaxDistance) or 1000, 50, 2000)
+    Settings.HitboxSize = math.clamp(tonumber(Settings.HitboxSize) or 3, 1, 7)
     Settings.UIScale = math.clamp(tonumber(Settings.UIScale) or 1, 0.80, 1.20)
     Settings.BackgroundOpacity = math.clamp(tonumber(Settings.BackgroundOpacity) or 0, 0, 0.30)
     Settings.SkeletonThickness = math.clamp(tonumber(Settings.SkeletonThickness) or 1.5, 0.5, 4)
@@ -1073,12 +1242,17 @@ local function applyLoadedSettings(saved)
     if not validPositions[Settings.OverlayPosition] then Settings.OverlayPosition = "TopLeft" end
     local validParts = {Head = true, HumanoidRootPart = true, UpperTorso = true, Torso = true}
     if not validParts[Settings.AimbotPart] then Settings.AimbotPart = "Head" end
+    local validActivation = {RMB = true, LMB = true, Always = true}
+    if not validActivation[Settings.AimbotActivation] then Settings.AimbotActivation = "RMB" end
+    local validHitboxParts = {Head = true, HumanoidRootPart = true}
+    if not validHitboxParts[Settings.HitboxPart] then Settings.HitboxPart = "Head" end
+    local keyOk, keyEnum = pcall(function() return Enum.KeyCode[Settings.MenuKey] end)
+    if not keyOk or not keyEnum then Settings.MenuKey = "RightShift" end
 end
 
 createActionButton(Pages[6], "Save Configuration", "Writes settings to a local JSON file.", "SAVE", function()
     if type(writefile) ~= "function" then
-        ConfigStatus.Text = "Config: this executor does not provide writefile()."
-        ConfigStatus.TextColor3 = Colors.Red
+        setConfigStatus("Config: this executor does not provide writefile().", Colors.Red)
         return
     end
     local ok, result = pcall(function()
@@ -1090,17 +1264,14 @@ createActionButton(Pages[6], "Save Configuration", "Writes settings to a local J
         writefile(CONFIG_FILE, HttpService:JSONEncode(payload))
     end)
     if ok then
-        ConfigStatus.Text = "Config: saved to " .. CONFIG_FILE
-        ConfigStatus.TextColor3 = Colors.Green
+        setConfigStatus("Config: saved to " .. CONFIG_FILE, Colors.Green)
     else
-        ConfigStatus.Text = "Config save failed: " .. tostring(result)
-        ConfigStatus.TextColor3 = Colors.Red
+        setConfigStatus("Config save failed: " .. tostring(result), Colors.Red)
     end
 end)
 createActionButton(Pages[6], "Load Configuration", "Restores settings from the saved JSON file.", "LOAD", function()
     if type(readfile) ~= "function" then
-        ConfigStatus.Text = "Config: this executor does not provide readfile()."
-        ConfigStatus.TextColor3 = Colors.Red
+        setConfigStatus("Config: this executor does not provide readfile().", Colors.Red)
         return
     end
     local ok, result = pcall(function()
@@ -1113,11 +1284,9 @@ createActionButton(Pages[6], "Load Configuration", "Restores settings from the s
         applyAllSettings()
     end)
     if ok then
-        ConfigStatus.Text = "Config: loaded successfully."
-        ConfigStatus.TextColor3 = Colors.Green
+        setConfigStatus("Config: loaded successfully.", Colors.Green)
     else
-        ConfigStatus.Text = "Config load failed: " .. tostring(result)
-        ConfigStatus.TextColor3 = Colors.Red
+        setConfigStatus("Config load failed: " .. tostring(result), Colors.Red)
     end
 end)
 createActionButton(Pages[6], "Reset Configuration", "Restores built-in defaults (not written to disk).", "RESET", function()
@@ -1125,11 +1294,10 @@ createActionButton(Pages[6], "Reset Configuration", "Restores built-in defaults 
         Settings[key] = value
     end
     applyAllSettings()
-    ConfigStatus.Text = "Config: defaults restored (not written to disk)."
-    ConfigStatus.TextColor3 = Colors.Green
+    setConfigStatus("Config: defaults restored (not written to disk).", Colors.Green)
 end, Colors.Off)
 createSection(Pages[6], "ABOUT")
-createRow(Pages[6], "vanta.lol v6.2", "RightShift opens or closes the menu.", 52, 20)
+createRow(Pages[6], "vanta.lol v6.4", "Your menu key (default RightShift) opens or closes the menu.", 52, 20)
 createRow(Pages[6], "Credits", "owned by maks and maciek", 48, 20)
 createRow(Pages[6], "Config Footer", "Saved configs include: owned by maks and maciek.", 48, 20)
 
@@ -1161,9 +1329,13 @@ end)
 UserInputService.InputChanged:Connect(function(input)
     if draggingWindow and input.UserInputType == Enum.UserInputType.MouseMovement then
         local delta = input.Position - dragStart
+        local viewportCamera = workspace.CurrentCamera
+        local viewportSize = viewportCamera and viewportCamera.ViewportSize or Vector2.new(1920, 1080)
+        local limitX = math.max(viewportSize.X / 2 - 80, 0)
+        local limitY = math.max(viewportSize.Y / 2 - 40, 0)
         Main.Position = UDim2.new(
-            startPosition.X.Scale, startPosition.X.Offset + delta.X,
-            startPosition.Y.Scale, startPosition.Y.Offset + delta.Y
+            startPosition.X.Scale, math.clamp(startPosition.X.Offset + delta.X, -limitX, limitX),
+            startPosition.Y.Scale, math.clamp(startPosition.Y.Offset + delta.Y, -limitY, limitY)
         )
     end
 end)
@@ -1187,6 +1359,9 @@ local function openMenu()
     ScreenGui.Enabled = true
     Main.Visible = true
     Main.Position = UDim2.fromScale(0.5, 0.5)
+    local popScale = math.clamp(tonumber(Settings.UIScale) or 1, 0.80, 1.20)
+    MainScale.Scale = popScale * 0.94
+    TweenService:Create(MainScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = popScale}):Play()
     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     UserInputService.MouseIconEnabled = true
     if cursorConnection then cursorConnection:Disconnect() end
@@ -1220,16 +1395,33 @@ end
 
 Close.MouseButton1Click:Connect(closeMenu)
 UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.RightShift and not UserInputService:GetFocusedTextBox() then
+    if KeybindState.Listening or os.clock() < KeybindState.IgnoreUntil then return end
+    if input.KeyCode == getMenuKeyCode() and not UserInputService:GetFocusedTextBox() then
         toggleMenu()
     end
 end)
 
 -- ============================================================
--- ESP / aim assist / hitbox visual
+-- ESP / aim assist / hitbox expander
 -- ============================================================
 local PlayerOverlays = {}
-local HitboxAdornments = {}
+local HitboxRecords = {}
+
+-- Puts a player's expanded part back exactly as it was.
+local function restoreHitbox(player)
+    local record = HitboxRecords[player]
+    if not record then return end
+    local part = record.Part
+    if part and part.Parent then
+        pcall(function()
+            part.Size = record.Size
+            part.Transparency = record.Transparency
+            part.CanCollide = record.CanCollide
+            part.Massless = record.Massless
+        end)
+    end
+    HitboxRecords[player] = nil
+end
 
 local aimCircle = Instance.new("Frame")
 aimCircle.Name = "AimFOVCircle"
@@ -1290,6 +1482,7 @@ local function hideOverlay(overlay)
 end
 
 local function removePlayerOverlay(player)
+    restoreHitbox(player)
     local overlay = PlayerOverlays[player]
     if overlay then
         for _, object in pairs(overlay) do
@@ -1301,11 +1494,6 @@ local function removePlayerOverlay(player)
             pcall(function() bone:Destroy() end)
         end
         PlayerOverlays[player] = nil
-    end
-    local adornment = HitboxAdornments[player]
-    if adornment then
-        pcall(function() adornment:Destroy() end)
-        HitboxAdornments[player] = nil
     end
 end
 
@@ -1404,18 +1592,26 @@ local function createPlayerOverlay(player)
     }
 end
 
-local function isTargetVisible(targetPart, character)
+-- One shared RaycastParams (previously a new one was built per player, per frame).
+-- RespectCanCollide: ghost parts (accessories, triggers, CanCollide=false decor) do not block the ray.
+local VisibilityParams = RaycastParams.new()
+VisibilityParams.FilterType = Enum.RaycastFilterType.Exclude
+VisibilityParams.IgnoreWater = true
+VisibilityParams.RespectCanCollide = true
+local visibilityFilterCharacter = nil
+
+local function refreshVisibilityFilter()
+    local character = LocalPlayer.Character
+    if character ~= visibilityFilterCharacter then
+        visibilityFilterCharacter = character
+        VisibilityParams.FilterDescendantsInstances = character and {character} or {}
+    end
+end
+
+local function isTargetVisible(targetPart, character, camera)
     if not Settings.VisibleCheck then return true end
-    local camera = workspace.CurrentCamera
-    if not camera then return false end
     local origin = camera.CFrame.Position
-    local direction = targetPart.Position - origin
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    local exclusions = {camera}
-    if LocalPlayer.Character then table.insert(exclusions, LocalPlayer.Character) end
-    params.FilterDescendantsInstances = exclusions
-    local result = workspace:Raycast(origin, direction, params)
+    local result = workspace:Raycast(origin, targetPart.Position - origin, VisibilityParams)
     return result == nil or result.Instance:IsDescendantOf(character)
 end
 
@@ -1536,40 +1732,46 @@ local function updatePlayerOverlay(player, overlay, camera)
     end
 end
 
+-- Hitbox expander: enlarges the chosen part client-side, restores it whenever it is no longer needed.
+local function getHitboxPart(character)
+    local part = character:FindFirstChild(Settings.HitboxPart)
+    if part and part:IsA("BasePart") then return part end
+    return nil
+end
+
 local function updateHitboxVisual(player)
-    local current = HitboxAdornments[player]
-    if not Settings.Hitbox then
-        if current then current:Destroy(); HitboxAdornments[player] = nil end
-        return
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local target = character and getHitboxPart(character)
+    local sameTeam = LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team
+    local shouldExpand = Settings.Hitbox and target ~= nil and humanoid ~= nil and humanoid.Health > 0
+        and not (Settings.TeamCheck and sameTeam)
+
+    local record = HitboxRecords[player]
+    -- Feature off, player dead/teammate, respawned, or the chosen part changed -> put the old part back first.
+    if record and (not shouldExpand or record.Part ~= target) then
+        restoreHitbox(player)
+        record = nil
     end
 
-    local character = player.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    if not root or not humanoid or humanoid.Health <= 0 then
-        if current then current:Destroy(); HitboxAdornments[player] = nil end
-        return
+    if shouldExpand then
+        if not record then
+            record = {
+                Part = target,
+                Size = target.Size,
+                Transparency = target.Transparency,
+                CanCollide = target.CanCollide,
+                Massless = target.Massless,
+            }
+            HitboxRecords[player] = record
+        end
+        local side = Settings.HitboxSize * 2 -- slider 1-5 => 2-10 studs
+        local newSize = Vector3.new(side, side, side)
+        if target.Size ~= newSize then target.Size = newSize end
+        if target.Transparency ~= 0.7 then target.Transparency = 0.7 end
+        if target.CanCollide then target.CanCollide = false end
+        if not target.Massless then target.Massless = true end
     end
-    if Settings.TeamCheck and LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team then
-        if current then current:Destroy(); HitboxAdornments[player] = nil end
-        return
-    end
-    if not current or current.Adornee ~= root then
-        if current then current:Destroy() end
-        current = Instance.new("BoxHandleAdornment")
-        current.Name = "VantaLolHitboxVisual"
-        current.Adornee = root
-        current.AlwaysOnTop = true
-        current.ZIndex = 8
-        current.Transparency = 0.55
-        current.Color3 = Settings.ESPColor
-        current.CFrame = CFrame.new()
-        current.Parent = root
-        HitboxAdornments[player] = current
-    end
-    local scale = 1 + ((Settings.HitboxSize - 1) * 0.1)
-    current.Size = root.Size * scale
-    current.Color3 = Settings.ESPColor
 end
 
 for _, player in ipairs(Players:GetPlayers()) do
@@ -1578,41 +1780,92 @@ end
 Players.PlayerAdded:Connect(createPlayerOverlay)
 Players.PlayerRemoving:Connect(removePlayerOverlay)
 
-local function updateFeatures()
+-- Aimbot ------------------------------------------------------
+local lockedPlayer = nil
+
+local function isAimActive()
+    local mode = Settings.AimbotActivation
+    if mode == "Always" then return true end
+    if mode == "LMB" then
+        return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+    end
+    return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+end
+
+-- Returns the aim part and its screen distance from the center, or nil if the player is not a valid target.
+-- Cheap checks run first; the raycast runs last and only for candidates that could still win.
+local function evaluateCandidate(player, camera, center, maxScreenDistance)
+    local character = player.Character
+    if not character then return nil end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return nil end
+    if character:FindFirstChildOfClass("ForceField") then return nil end
+
+    local sameTeam = LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team
+    if Settings.TeamCheck and sameTeam then return nil end
+
+    local part = getTargetPart(character)
+    if not part then return nil end
+
+    if (part.Position - camera.CFrame.Position).Magnitude > Settings.AimbotMaxDistance then return nil end
+
+    local screen, onScreen = camera:WorldToViewportPoint(part.Position)
+    if not onScreen or screen.Z <= 0 then return nil end
+    local screenDistance = (Vector2.new(screen.X, screen.Y) - center).Magnitude
+    if screenDistance > maxScreenDistance then return nil end
+
+    if not isTargetVisible(part, character, camera) then return nil end
+    return part, screenDistance
+end
+
+local function updateFeatures(dt)
     local camera = workspace.CurrentCamera
     if not camera then return end
     Camera = camera
 
     local viewport = camera.ViewportSize
+    local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
     aimCircle.Size = UDim2.fromOffset(Settings.AimbotFOV * 2, Settings.AimbotFOV * 2)
-    aimCircle.Position = UDim2.fromOffset(viewport.X / 2, viewport.Y / 2)
+    aimCircle.Position = UDim2.fromOffset(center.X, center.Y)
     aimCircle.Visible = Settings.ShowFOV and Settings.Aimbot and not menuOpen
 
-    if Settings.Aimbot and not menuOpen then
-        local closestPart = nil
-        local shortestDistance = Settings.AimbotFOV
-        local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                local character = player.Character
-                local humanoid = character:FindFirstChildOfClass("Humanoid")
-                local part = getTargetPart(character)
-                local sameTeam = LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team
-                if humanoid and humanoid.Health > 0 and part and not (Settings.TeamCheck and sameTeam) then
-                    local screen, onScreen = camera:WorldToViewportPoint(part.Position)
-                    if onScreen and screen.Z > 0 and isTargetVisible(part, character) then
-                        local screenDistance = (Vector2.new(screen.X, screen.Y) - center).Magnitude
-                        if screenDistance < shortestDistance then
-                            shortestDistance = screenDistance
-                            closestPart = part
-                        end
+    local aimActive = Settings.Aimbot and not menuOpen and isAimActive()
+    if not aimActive then
+        lockedPlayer = nil
+    else
+        refreshVisibilityFilter()
+
+        local targetPart = nil
+
+        -- Keep the current target as long as it stays valid (stops flicker between two nearby players).
+        if lockedPlayer then
+            targetPart = evaluateCandidate(lockedPlayer, camera, center, Settings.AimbotFOV)
+            if not targetPart then lockedPlayer = nil end
+        end
+
+        if not targetPart then
+            local bestDistance = Settings.AimbotFOV
+            local bestPlayer = nil
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    local part, screenDistance = evaluateCandidate(player, camera, center, bestDistance)
+                    if part and screenDistance < bestDistance then
+                        bestDistance = screenDistance
+                        targetPart = part
+                        bestPlayer = player
                     end
                 end
             end
+            lockedPlayer = bestPlayer
         end
-        if closestPart then
-            local desired = CFrame.lookAt(camera.CFrame.Position, closestPart.Position)
-            local alpha = math.clamp(Settings.AimbotSmoothness, 0.01, 1)
+
+        if targetPart then
+            local aimPosition = targetPart.Position + targetPart.AssemblyLinearVelocity * Settings.AimbotPrediction
+            local desired = CFrame.lookAt(camera.CFrame.Position, aimPosition)
+            -- Frame-rate independent smoothing: same feel at 60 and 240 FPS.
+            local smoothness = math.clamp(Settings.AimbotSmoothness, 0.01, 1)
+            local frames = math.clamp(dt or (1 / 60), 0, 0.1) * 60
+            local alpha = 1 - (1 - smoothness) ^ frames
             camera.CFrame = camera.CFrame:Lerp(desired, alpha)
         end
     end
@@ -1623,7 +1876,9 @@ local function updateFeatures()
     end
 end
 
-local featureConnection = RunService.RenderStepped:Connect(updateFeatures)
+-- Avoids "already bound" errors if the script is executed twice.
+pcall(function() RunService:UnbindFromRenderStep("VantaLolFeatures") end)
+RunService:BindToRenderStep("VantaLolFeatures", Enum.RenderPriority.Camera.Value + 1, updateFeatures)
 
 local fpsFrames = 0
 local fpsElapsed = 0
@@ -1641,13 +1896,14 @@ end)
 ScreenGui.Destroying:Connect(function()
     if cursorConnection then cursorConnection:Disconnect() end
     if renderConnection then renderConnection:Disconnect() end
-    if featureConnection then featureConnection:Disconnect() end
+    pcall(function() RunService:UnbindFromRenderStep("VantaLolFeatures") end)
     if indicatorTween then indicatorTween:Cancel() end
     for _, tween in pairs(tabPageTweens) do pcall(function() tween:Cancel() end) end
     for _, tween in pairs(pageScrollTweens) do pcall(function() tween:Cancel() end) end
+    for player in pairs(HitboxRecords) do restoreHitbox(player) end
     for player in pairs(PlayerOverlays) do removePlayerOverlay(player) end
 end)
 
-print("[vanta.lol] Version 6.2 loaded. GUI parent: " .. GuiParentName .. ". Press RightShift to open the menu.")
+print("[vanta.lol] Version 6.4 loaded. GUI parent: " .. GuiParentName .. ". Press " .. tostring(Settings.MenuKey) .. " to open the menu.")
 
 -- owned by maks and maciek

@@ -1,5 +1,14 @@
 --[[
-    vanta.lol v6.4 - interface and configuration panel
+    vanta.lol v6.6 - interface and configuration panel
+    Changes vs v6.5 (aimbot tracking):
+      * New "Tracking" slider: aims ahead by the time the smoothing makes the aim trail behind, so the aim stays
+        on a target that keeps moving instead of lagging behind it.
+      * Mouse mode keeps the fractional pixels (mousemoverel only takes whole pixels), so slow tracking never stalls.
+      * Mouse mode picks targets around the cursor (when the cursor is free) and the FOV circle follows it.
+    Changes vs v6.4:
+      * Aimbot: new "Aim Mode" (Camera / Mouse). Mouse mode moves the cursor with mousemoverel(), so games that fire
+        toward the cursor (instead of the camera center) shoot where the aimbot points. Falls back to Camera mode
+        when the executor has no mousemoverel().
     Changes vs v6.3 (menu only, aimbot/ESP/hitbox logic untouched):
       * Toast notifications (config save/load/reset, Aimbot/ESP/Hitbox toggles, menu key changes).
       * Rebindable menu key (GENERAL > Menu Key), saved in the config.
@@ -32,12 +41,12 @@ if not LocalPlayer then
     return
 end
 
-local GUI_NAME = "VantaLolUI_v64"
+local GUI_NAME = "VantaLolUI_v66"
 local CONFIG_FILE = "vanta.lol_config.json"
 
 local function safeDestroyPrevious(parent)
     if not parent then return end
-    for _, name in ipairs({GUI_NAME, "VantaLolUI_v63", "VantaLolUI_v62", "VantaLolUI_v61"}) do
+    for _, name in ipairs({GUI_NAME, "VantaLolUI_v65", "VantaLolUI_v64", "VantaLolUI_v63", "VantaLolUI_v62", "VantaLolUI_v61"}) do
         local ok, oldGui = pcall(function() return parent:FindFirstChild(name) end)
         if ok and oldGui then pcall(function() oldGui:Destroy() end) end
     end
@@ -107,6 +116,8 @@ local Defaults = {
     AimbotSmoothness = 0.25,
     AimbotPart = "Head",
     AimbotActivation = "RMB",
+    AimbotMode = "Camera",
+    AimbotTracking = 0.8,
     AimbotPrediction = 0,
     AimbotMaxDistance = 1000,
     TeamCheck = true,
@@ -356,7 +367,7 @@ AccentBar.Parent = Header
 registerAccentUpdater(function() AccentBar.BackgroundColor3 = Colors.Accent end)
 
 makeLabel(Header, "vanta.lol", UDim2.fromOffset(16, 6), UDim2.new(1, -90, 0, 25), 18, Colors.Text, Enum.Font.GothamBold)
-local Subtitle = makeLabel(Header, "AIM / ESP / CONFIG  /  v6.4", UDim2.fromOffset(17, 31), UDim2.new(1, -100, 0, 16), 10, Colors.Accent, Enum.Font.Gotham)
+local Subtitle = makeLabel(Header, "AIM / ESP / CONFIG  /  v6.6", UDim2.fromOffset(17, 31), UDim2.new(1, -100, 0, 16), 10, Colors.Accent, Enum.Font.Gotham)
 registerAccentUpdater(function() Subtitle.TextColor3 = Colors.Accent end)
 
 local Close = Instance.new("TextButton")
@@ -1125,9 +1136,11 @@ end
 createSection(Pages[1], "AIM ASSIST")
 createToggle(Pages[1], "Aimbot", "Camera assist toward the best candidate in the FOV.", "Aimbot")
 createDropdown(Pages[1], "Activation", "RMB / LMB = hold the button, Always = constant aim.", "AimbotActivation", {"RMB", "LMB", "Always"})
+createDropdown(Pages[1], "Aim Mode", "Camera = turn view, Mouse = move cursor (mousemoverel).", "AimbotMode", {"Camera", "Mouse"})
 createSlider(Pages[1], "FOV Radius", "Max pixel distance from screen center for targets.", "AimbotFOV", 10, 360, 5)
 createSlider(Pages[1], "Smoothness", "Lower = slower camera movement, higher = snappier.", "AimbotSmoothness", 0.05, 1.00, 0.05)
 createSlider(Pages[1], "Prediction", "Leads moving targets (seconds). 0 = off.", "AimbotPrediction", 0, 0.30, 0.01)
+createSlider(Pages[1], "Tracking", "Keeps the aim on moving targets (0 = off, 1 = full).", "AimbotTracking", 0, 1, 0.05)
 createSlider(Pages[1], "Max Distance", "Ignores targets farther than this (studs).", "AimbotMaxDistance", 50, 2000, 50)
 createDropdown(Pages[1], "Target Part", "Body part used as the aim reference point.", "AimbotPart", {"Head", "HumanoidRootPart", "UpperTorso", "Torso"})
 createToggle(Pages[1], "Team Check", "Skips teammates for targeting and visuals.", "TeamCheck")
@@ -1228,6 +1241,7 @@ local function applyLoadedSettings(saved)
     Settings.AimbotFOV = math.clamp(tonumber(Settings.AimbotFOV) or 180, 10, 360)
     Settings.AimbotSmoothness = math.clamp(tonumber(Settings.AimbotSmoothness) or 0.25, 0.05, 1)
     Settings.AimbotPrediction = math.clamp(tonumber(Settings.AimbotPrediction) or 0, 0, 0.30)
+    Settings.AimbotTracking = math.clamp(tonumber(Settings.AimbotTracking) or 0.8, 0, 1)
     Settings.AimbotMaxDistance = math.clamp(tonumber(Settings.AimbotMaxDistance) or 1000, 50, 2000)
     Settings.HitboxSize = math.clamp(tonumber(Settings.HitboxSize) or 3, 1, 7)
     Settings.UIScale = math.clamp(tonumber(Settings.UIScale) or 1, 0.80, 1.20)
@@ -1242,6 +1256,8 @@ local function applyLoadedSettings(saved)
     if not validPositions[Settings.OverlayPosition] then Settings.OverlayPosition = "TopLeft" end
     local validParts = {Head = true, HumanoidRootPart = true, UpperTorso = true, Torso = true}
     if not validParts[Settings.AimbotPart] then Settings.AimbotPart = "Head" end
+    local validModes = {Camera = true, Mouse = true}
+    if not validModes[Settings.AimbotMode] then Settings.AimbotMode = "Camera" end
     local validActivation = {RMB = true, LMB = true, Always = true}
     if not validActivation[Settings.AimbotActivation] then Settings.AimbotActivation = "RMB" end
     local validHitboxParts = {Head = true, HumanoidRootPart = true}
@@ -1297,7 +1313,7 @@ createActionButton(Pages[6], "Reset Configuration", "Restores built-in defaults 
     setConfigStatus("Config: defaults restored (not written to disk).", Colors.Green)
 end, Colors.Off)
 createSection(Pages[6], "ABOUT")
-createRow(Pages[6], "vanta.lol v6.4", "Your menu key (default RightShift) opens or closes the menu.", 52, 20)
+createRow(Pages[6], "vanta.lol v6.6", "Your menu key (default RightShift) opens or closes the menu.", 52, 20)
 createRow(Pages[6], "Credits", "owned by maks and maciek", 48, 20)
 createRow(Pages[6], "Config Footer", "Saved configs include: owned by maks and maciek.", 48, 20)
 
@@ -1782,6 +1798,8 @@ Players.PlayerRemoving:Connect(removePlayerOverlay)
 
 -- Aimbot ------------------------------------------------------
 local lockedPlayer = nil
+local mouseModeWarned = false
+local mouseResidual = Vector2.new(0, 0)
 
 local function isAimActive()
     local mode = Settings.AimbotActivation
@@ -1825,13 +1843,19 @@ local function updateFeatures(dt)
 
     local viewport = camera.ViewportSize
     local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
+    -- Targets are measured from the cursor in Mouse mode (when it is free), otherwise from the screen center.
+    local selectionCenter = center
+    if Settings.AimbotMode == "Mouse" and UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+        selectionCenter = UserInputService:GetMouseLocation()
+    end
     aimCircle.Size = UDim2.fromOffset(Settings.AimbotFOV * 2, Settings.AimbotFOV * 2)
-    aimCircle.Position = UDim2.fromOffset(center.X, center.Y)
+    aimCircle.Position = UDim2.fromOffset(selectionCenter.X, selectionCenter.Y)
     aimCircle.Visible = Settings.ShowFOV and Settings.Aimbot and not menuOpen
 
     local aimActive = Settings.Aimbot and not menuOpen and isAimActive()
     if not aimActive then
         lockedPlayer = nil
+        mouseResidual = Vector2.new(0, 0)
     else
         refreshVisibilityFilter()
 
@@ -1839,7 +1863,7 @@ local function updateFeatures(dt)
 
         -- Keep the current target as long as it stays valid (stops flicker between two nearby players).
         if lockedPlayer then
-            targetPart = evaluateCandidate(lockedPlayer, camera, center, Settings.AimbotFOV)
+            targetPart = evaluateCandidate(lockedPlayer, camera, selectionCenter, Settings.AimbotFOV)
             if not targetPart then lockedPlayer = nil end
         end
 
@@ -1848,7 +1872,7 @@ local function updateFeatures(dt)
             local bestPlayer = nil
             for _, player in ipairs(Players:GetPlayers()) do
                 if player ~= LocalPlayer then
-                    local part, screenDistance = evaluateCandidate(player, camera, center, bestDistance)
+                    local part, screenDistance = evaluateCandidate(player, camera, selectionCenter, bestDistance)
                     if part and screenDistance < bestDistance then
                         bestDistance = screenDistance
                         targetPart = part
@@ -1860,13 +1884,47 @@ local function updateFeatures(dt)
         end
 
         if targetPart then
-            local aimPosition = targetPart.Position + targetPart.AssemblyLinearVelocity * Settings.AimbotPrediction
-            local desired = CFrame.lookAt(camera.CFrame.Position, aimPosition)
             -- Frame-rate independent smoothing: same feel at 60 and 240 FPS.
+            local frameTime = math.clamp(dt or (1 / 60), 0, 0.1)
             local smoothness = math.clamp(Settings.AimbotSmoothness, 0.01, 1)
-            local frames = math.clamp(dt or (1 / 60), 0, 0.1) * 60
-            local alpha = 1 - (1 - smoothness) ^ frames
-            camera.CFrame = camera.CFrame:Lerp(desired, alpha)
+            local alpha = 1 - (1 - smoothness) ^ (frameTime * 60)
+            -- Smoothing makes the aim trail behind a moving target by about frameTime * (1 - alpha) / alpha seconds.
+            -- "Tracking" aims that much ahead, so the aim stays on a target that keeps moving.
+            local trailTime = 0
+            if alpha > 0 then trailTime = math.min(frameTime * (1 - alpha) / alpha, 0.25) end
+            local leadTime = Settings.AimbotPrediction + trailTime * Settings.AimbotTracking
+            local aimPosition = targetPart.Position + targetPart.AssemblyLinearVelocity * leadTime
+            local desired = CFrame.lookAt(camera.CFrame.Position, aimPosition)
+            local usedMouse = false
+            if Settings.AimbotMode == "Mouse" then
+                if type(mousemoverel) == "function" then
+                    local screenPoint, onScreen = camera:WorldToViewportPoint(aimPosition)
+                    if onScreen and screenPoint.Z > 0 then
+                        -- With mouse lock (shift lock / first person) the cursor sits in the screen center.
+                        local reference = center
+                        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+                            reference = UserInputService:GetMouseLocation()
+                        end
+                        -- mousemoverel works in whole pixels: keep the fractional rest so slow tracking never stalls.
+                        mouseResidual = mouseResidual + Vector2.new((screenPoint.X - reference.X) * alpha, (screenPoint.Y - reference.Y) * alpha)
+                        local stepX = mouseResidual.X >= 0 and math.floor(mouseResidual.X) or math.ceil(mouseResidual.X)
+                        local stepY = mouseResidual.Y >= 0 and math.floor(mouseResidual.Y) or math.ceil(mouseResidual.Y)
+                        if stepX ~= 0 or stepY ~= 0 then
+                            pcall(mousemoverel, stepX, stepY)
+                            mouseResidual = mouseResidual - Vector2.new(stepX, stepY)
+                        end
+                    else
+                        mouseResidual = Vector2.new(0, 0)
+                    end
+                    usedMouse = true
+                elseif not mouseModeWarned then
+                    mouseModeWarned = true
+                    notify("mousemoverel() not available - using Camera mode", "error")
+                end
+            end
+            if not usedMouse then
+                camera.CFrame = camera.CFrame:Lerp(desired, alpha)
+            end
         end
     end
 
@@ -1904,6 +1962,6 @@ ScreenGui.Destroying:Connect(function()
     for player in pairs(PlayerOverlays) do removePlayerOverlay(player) end
 end)
 
-print("[vanta.lol] Version 6.4 loaded. GUI parent: " .. GuiParentName .. ". Press " .. tostring(Settings.MenuKey) .. " to open the menu.")
+print("[vanta.lol] Version 6.6 loaded. GUI parent: " .. GuiParentName .. ". Press " .. tostring(Settings.MenuKey) .. " to open the menu.")
 
 -- owned by maks and maciek
